@@ -2,7 +2,7 @@
 
 This is an experimental single-operator voice-quality test based on VoxDock. It runs the bridge, its simulated context backend, and the patched WaCalls service inside one Railway container. WaCalls and the backend listen on loopback only. Real WhatsApp calling, Railway UDP networking, build and audio quality have not been verified for this deployment.
 
-1. Deploy this GitHub repository as a Railway service. Set `RAILWAY_DOCKERFILE_PATH` to `Dockerfile.railway` before building.
+1. Deploy this GitHub repository as a Railway service. The root `Dockerfile` is configured for Railway; no Dockerfile-path variable is needed.
 2. Add a persistent volume mounted at `/data`. Use exactly one replica and never run another instance using this WhatsApp session.
 3. Set the secret variable `OPENAI_API_KEY` in Railway. Generate a public domain for the service; Railway supplies `RAILWAY_PUBLIC_DOMAIN`. If needed set `VOXDOCK_PUBLIC_ORIGIN` to the exact `https://...` origin with no trailing slash. Redeploy after setting these values. The app listens on Railway's `PORT`.
 4. Open `https://<your-domain>/console/`. Obtain the initial private admin credentials using `railway ssh` and `cat /data/bootstrap-credentials.txt`; change the password in Settings. Do not share the credentials, QR code, or volume contents.
