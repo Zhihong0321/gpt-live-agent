@@ -100,10 +100,25 @@ test('does not disconnect on an oversized inbound burst', () => {
   try {
     audio.receive(Buffer.alloc(64000)); audio.receive(Buffer.alloc(640));
     expect(fail).not.toHaveBeenCalled();
-    expect(audio.metrics().max_input_queue_ms).toBe(500);
-    expect(audio.metrics().input_dropped_ms).toBe(1520);
+    expect(audio.metrics().max_input_queue_ms).toBe(2000);
+    expect(audio.metrics().input_dropped_ms).toBe(20);
+    expect(audio.metrics().input_audible_dropped_ms).toBe(0);
   }
   finally { audio.close(); }
+});
+
+test('reports audible incoming audio lost during overload without saving it', () => {
+  const fail = vi.fn();
+  const voice: VoiceDriver = { rate: 16000, frameMs: 20, dial: async () => 'call', accept: async ref => ref,
+    reject: async () => {}, end: async () => {}, close: async () => {}, writeAudio: async () => {} };
+  const live: RuntimeLive = { start() {}, appendAudio() {}, close() {}, commentary: () => 'c', instructions: () => 'i', thinking: () => 't' };
+  const audio = new CallAudio(voice, 'call', 16000, live, fail);
+  const speech = Buffer.alloc(64000); for (let i = 0; i < speech.length; i += 2) speech.writeInt16LE(10000, i);
+  try {
+    audio.receive(speech); audio.receive(Buffer.alloc(640));
+    expect(audio.metrics().input_audible_dropped_ms).toBe(20);
+    expect(fail).not.toHaveBeenCalled();
+  } finally { audio.close(); }
 });
 
 test('does not disconnect when a phone write briefly remains pending', async () => {

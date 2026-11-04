@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { PcmFrameQueue, PcmPacer, FfmpegResampler } from '@voxdock/audio';
+import { PcmFrameQueue, PcmPacer, FfmpegResampler, hasAudiblePcm } from '@voxdock/audio';
 import type { Duplex } from 'node:stream';
 import type { VoiceDriver, RuntimeLive, RuntimeDependencies } from './types.js';
 
@@ -22,10 +22,12 @@ export class CallAudio {
   private inputHighWaterMs = 0;
   private outputHighWaterMs = 0;
   private inputDroppedMs = 0;
+  private inputAudibleDroppedMs = 0;
   private outputDroppedMs = 0;
   constructor(private readonly voice: VoiceDriver, private readonly ref: string, rate: 16000 | 24000,
     private readonly live: RuntimeLive, private readonly fail: (reason: AudioFailureReason) => void, resampler?: RuntimeDependencies['resampler']) {
-    this.input = new PcmFrameQueue(rate, 20, 500);
+    // Keep the previously working input headroom; log drops to assess tradeoffs.
+    this.input = new PcmFrameQueue(rate, 20, 2000);
     // Model audio can arrive in bursts faster than real-time playback.
     this.output = new PcmFrameQueue(voice.rate, voice.frameMs, 1500);
     this.inputPacer = new PcmPacer(this.input, pcm => {
@@ -52,7 +54,13 @@ export class CallAudio {
   private enqueue(queue: PcmFrameQueue, pcm: Buffer, reason: AudioFailureReason): void {
     if (this.stopped) return;
     try {
-      const dropped = queue.pushLatest(pcm);
+      const dropped = queue.pushLatest(pcm, discarded => {
+        const windowBytes = queue.bytesPerFrame;
+        for (let i = 0; i < discarded.byteLength; i += windowBytes) {
+          const window = discarded.subarray(i, i + windowBytes);
+          if (hasAudiblePcm(window)) this.inputAudibleDroppedMs += window.byteLength / (queue.rate * 2) * 1000;
+        }
+      });
       this.inputDroppedMs += dropped / (queue.rate * 2) * 1000;
       this.inputHighWaterMs = Math.max(this.inputHighWaterMs, queue.bufferedBytes / (queue.rate * 2) * 1000);
     } catch { this.failed(reason); }
@@ -82,6 +90,7 @@ export class CallAudio {
       max_input_queue_ms: Math.round(this.inputHighWaterMs),
       max_output_queue_ms: Math.round(this.outputHighWaterMs),
       input_dropped_ms: Math.round(this.inputDroppedMs),
+      input_audible_dropped_ms: Math.round(this.inputAudibleDroppedMs),
       output_dropped_ms: Math.round(this.outputDroppedMs),
     };
   }
