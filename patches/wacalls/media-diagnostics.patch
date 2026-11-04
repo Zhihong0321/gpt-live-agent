@@ -1,0 +1,58 @@
+diff --git a/cmd/server/media.go b/cmd/server/media.go
+index 0ccc32c..573b316 100644
+--- a/cmd/server/media.go
++++ b/cmd/server/media.go
+@@ -6,6 +6,7 @@ import (
+ 	"crypto/subtle"
+ 	"encoding/base64"
+ 	"errors"
++	"log"
+ 	"net/http"
+ 	"os"
+ 	"strings"
+@@ -175,6 +176,7 @@ func (b *socketMedia) WritePCM(pcm []float32) error {
+ 	b.mu.Lock()
+ 	defer b.mu.Unlock()
+ 	if len(pcm) > maxPCMBytes/2 {
++		log.Print("media_disconnect=oversized_input_frame")
+ 		b.closeLocked()
+ 		return errors.New("PCM frame exceeds limit")
+ 	}
+@@ -191,6 +193,7 @@ func (b *socketMedia) WritePCM(pcm []float32) error {
+ 	case b.queue <- data:
+ 		return nil
+ 	default:
++		log.Print("media_disconnect=outbound_queue_overflow")
+ 		b.closeLocked()
+ 		return errors.New("media output overflow")
+ 	}
+@@ -202,6 +205,7 @@ func (b *socketMedia) write(kind websocket.MessageType, data []byte) error {
+ }
+ func (b *socketMedia) run(feed func([]float32)) {
+ 	if b.write(websocket.MessageText, []byte(`{"type":"media.ready","format":"pcm_s16le","sample_rate":16000,"channels":1}`)) != nil {
++		log.Print("media_disconnect=ready_write_failed")
+ 		return
+ 	}
+ 	done := make(chan struct{})
+@@ -214,6 +218,7 @@ func (b *socketMedia) run(feed func([]float32)) {
+ 				return
+ 			case data := <-b.queue:
+ 				if b.write(websocket.MessageBinary, data) != nil {
++					log.Print("media_disconnect=audio_write_failed")
+ 					return
+ 				}
+ 			}
+@@ -226,6 +231,13 @@ func (b *socketMedia) run(feed func([]float32)) {
+ 		kind, data, err := b.conn.Read(ctx)
+ 		cancel()
+ 		if err != nil || kind != websocket.MessageBinary || len(data) == 0 || len(data)%2 != 0 || len(data) > maxPCMBytes {
++			if b.ctx.Err() == nil {
++				if err != nil {
++					log.Print("media_disconnect=audio_read_failed")
++				} else {
++					log.Print("media_disconnect=invalid_audio_frame")
++				}
++			}
+ 			return
+ 		}
+ 		feed(media.PCMInt16LEToFloat32(data))
