@@ -77,7 +77,11 @@ export async function createWhatsAppDriver(options: WhatsAppOptions, callbacks: 
       const media = await mediaFactory({ baseUrl: options.baseUrl, sessionId: options.sessionId, callId: call.ref, mediaSecret: options.mediaSecret,
         clientId, signal: call.abort.signal, fetch: transport,
         onAudio: pcm => { if (active === call && !call.mediaFailed && !call.localEnding && !call.terminal) callbacks.audio(call.ref, pcm); },
-        onClosed: () => failMedia(call),
+        onClosed: reason => {
+          const safeReasons = new Set(['startup_timeout', 'token_failed', 'connect_failed', 'backpressure', 'send_failed', 'invalid_frame', 'invalid_ready', 'consumer_failed', 'transport_closed', 'transport_failed']);
+          if (safeReasons.has(reason)) console.warn(`whatsapp_media_closed=${reason}`);
+          failMedia(call);
+        },
       });
       if (active !== call || call.mediaFailed || call.localEnding || call.terminal || failed || closed) { media.close(); return; }
       call.media = media; callbacks.audioReady(call.ref);
