@@ -195,9 +195,9 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
       if (event.type === 'ready') {
         a.sessionId = event.sessionId; safeTransition(a, 'connected', { live_ready: true });
         a.audio = new CallAudio(a.route.voice, a.providerRef!, config.live.sample_rate_hz[a.route.target.channel], a.live!, reason => { void stop(a, reason); }, dependencies.resampler);
-        a.closing = new ClosingDetector(() => a.audio?.hasPendingOutput() ?? false, () => { if (current(a) && !a.stopping) void stop(a, 'conversation_complete'); });
+        a.closing = new ClosingDetector(() => a.audio?.hasPendingSpeech() ?? false, () => { if (current(a) && !a.stopping) void stop(a, 'conversation_complete'); });
         void greet(a);
-      } else if (event.type === 'audio') { a.closing?.audio(); a.audio?.play(event.pcm); }
+      } else if (event.type === 'audio') { a.closing?.audio(event.pcm); a.audio?.play(event.pcm); }
       else if (event.type === 'transcript') transcript(a, event);
       else if (event.type === 'delegation') {
         if (event.target === 'responses') recordManagedDelegation(a, event.id, event.offsetMs);

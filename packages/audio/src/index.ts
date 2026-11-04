@@ -14,6 +14,20 @@ export function pcmDurationMs(pcm: Uint8Array, rate: PcmRate): number {
   return pcm.byteLength / 2 / rate * 1000;
 }
 
+/** Conservative speech-energy check for PCM16LE. Silent frames remain below
+ * the threshold, so continuous digital silence is not mistaken for playback. */
+export function hasAudiblePcm(pcm: Uint8Array): boolean {
+  const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const samplesPerWindow = 320;
+  for (let start = 0; start + 1 < pcm.byteLength; start += samplesPerWindow * 2) {
+    const end = Math.min(pcm.byteLength - pcm.byteLength % 2, start + samplesPerWindow * 2);
+    let sum = 0, count = 0;
+    for (let i = start; i + 1 < end; i += 2) { const v = view.getInt16(i, true); sum += v * v; count++; }
+    if (count && Math.sqrt(sum / count) >= 200) return true;
+  }
+  return false;
+}
+
 /** A bounded mono PCM16 queue. Overflow is explicit, never silently discarded. */
 export class PcmFrameQueue {
   private pending = Buffer.alloc(0);
@@ -25,6 +39,7 @@ export class PcmFrameQueue {
     if (this.capacity < this.bytesPerFrame) throw new Error('Buffer shorter than frame');
   }
   get bufferedBytes(): number { return this.pending.length; }
+  hasAudibleAudio(): boolean { return hasAudiblePcm(this.pending); }
   push(bytes: Uint8Array): void {
     if (this.pending.length + bytes.byteLength > this.capacity) throw new Error('Audio backpressure');
     this.pending = Buffer.concat([this.pending, bytes]);

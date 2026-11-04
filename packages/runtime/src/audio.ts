@@ -60,7 +60,7 @@ export class CallAudio {
     try { if (!this.toPhone.write(pcm)) this.failed('audio_output_resampler_failed'); }
     catch { this.failed('audio_output_resampler_failed'); }
   }
-  hasPendingOutput(): boolean { return this.output.bufferedBytes > 0; }
+  hasPendingSpeech(): boolean { return this.output.hasAudibleAudio(); }
   private tick(): void {
     if (this.stopped) return;
     const now = performance.now();

@@ -13,12 +13,20 @@ test('waits for the complete closing, audio queue and two quiet seconds', () => 
   detector.transcript('祝你生意兴隆。');
   vi.advanceTimersByTime(2500);
   expect(end).not.toHaveBeenCalled();
-  pending = false; detector.audio();
+  pending = false; const speech = Buffer.alloc(640); speech.writeInt16LE(10000, 0); speech.fill(speech.subarray(0, 2)); detector.audio(speech);
   vi.advanceTimersByTime(1900);
   expect(end).not.toHaveBeenCalled();
   vi.advanceTimersByTime(100);
   expect(end).toHaveBeenCalledOnce();
   detector.close();
+});
+
+test('continuous silent output does not prevent hangup after the new closing', () => {
+  vi.useFakeTimers(); const end = vi.fn();
+  const detector = new ClosingDetector(() => false, end);
+  detector.transcript('代表恒浩能源祝您，'); detector.transcript('生意兴隆。');
+  for (let i = 0; i < 20; i++) { detector.audio(Buffer.alloc(640)); vi.advanceTimersByTime(100); }
+  expect(end).toHaveBeenCalledOnce();
 });
 
 test('does not end when closed before the delay', () => {
