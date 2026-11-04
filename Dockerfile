@@ -27,7 +27,8 @@ COPY --from=source /source/client/ ./
 RUN npm ci && npm run build
 
 FROM source AS server
-RUN go test ./cmd/server ./internal/voip/call \
+RUN go get go.mau.fi/whatsmeow@v0.0.0-20261102152715-54038813c47f \
+ && go test ./cmd/server ./internal/voip/call \
  && CGO_ENABLED=0 go build -trimpath -o /out/wacalls-server ./cmd/server \
  && go list -m -json all > /out/dependencies.json \
  && git rev-parse HEAD > /out/source-revision.txt \
