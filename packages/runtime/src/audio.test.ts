@@ -59,6 +59,21 @@ test('duplex pacing survives a minute of recurring timer lateness without growin
   } finally { audio.close(); vi.restoreAllMocks(); }
 });
 
+test('accepts a one-second burst of generated audio without ending the call', () => {
+  const fail = vi.fn();
+  const voice: VoiceDriver = {
+    rate: 16000, frameMs: 20, dial: async () => 'call', accept: async ref => ref,
+    reject: async () => {}, end: async () => {}, close: async () => {}, writeAudio: async () => {},
+  };
+  const live: RuntimeLive = {
+    start() {}, appendAudio() {}, close() {},
+    commentary: () => 'c', instructions: () => 'i', thinking: () => 't',
+  };
+  const audio = new CallAudio(voice, 'call', 16000, live, fail);
+  try { audio.play(Buffer.alloc(32000)); expect(fail).not.toHaveBeenCalled(); }
+  finally { audio.close(); }
+});
+
 test.each([
   ['input', 'audio_input_overflow'], ['output', 'audio_output_overflow'],
   ['live', 'audio_live_write_failed'], ['phone', 'audio_phone_write_failed'],
@@ -82,8 +97,8 @@ test.each([
   };
   const audio = new CallAudio(voice, 'call', 16000, live, fail);
   try {
-    if (boundary === 'input') audio.receive(Buffer.alloc(16001));
-    if (boundary === 'output') audio.play(Buffer.alloc(16001));
+    if (boundary === 'input') audio.receive(Buffer.alloc(64001));
+    if (boundary === 'output') audio.play(Buffer.alloc(160001));
     await vi.advanceTimersByTimeAsync(50);
     expect(fail.mock.calls).toEqual([[reason]]);
   } finally { audio.close(); vi.restoreAllMocks(); vi.useRealTimers(); }

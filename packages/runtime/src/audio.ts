@@ -8,7 +8,7 @@ export type AudioFailureReason =
   | 'audio_input_resampler_failed' | 'audio_output_resampler_failed'
   | 'audio_live_write_failed' | 'audio_phone_write_failed' | 'audio_phone_write_pending';
 
-/** One paced duplex route; all queues are bounded to 500 ms and overflow ends the call. */
+/** One paced duplex route. Queues remain bounded and overflow ends the call. */
 export class CallAudio {
   private readonly input: PcmFrameQueue;
   private readonly output: PcmFrameQueue;
@@ -21,8 +21,9 @@ export class CallAudio {
   private writing = false;
   constructor(private readonly voice: VoiceDriver, private readonly ref: string, rate: 16000 | 24000,
     private readonly live: RuntimeLive, private readonly fail: (reason: AudioFailureReason) => void, resampler?: RuntimeDependencies['resampler']) {
-    this.input = new PcmFrameQueue(rate, 20, 500);
-    this.output = new PcmFrameQueue(voice.rate, voice.frameMs, 500);
+    this.input = new PcmFrameQueue(rate, 20, 2000);
+    // Model audio can arrive in bursts faster than real-time playback.
+    this.output = new PcmFrameQueue(voice.rate, voice.frameMs, 5000);
     this.inputPacer = new PcmPacer(this.input, pcm => {
       try { this.live.appendAudio(pcm); } catch { this.failed('audio_live_write_failed'); }
     });
