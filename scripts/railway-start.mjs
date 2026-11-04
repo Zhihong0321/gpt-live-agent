@@ -9,6 +9,8 @@ const data = process.env.VOXDOCK_DATA_DIR || '/data';
 const domain = process.env.RAILWAY_PUBLIC_DOMAIN;
 const origin = process.env.VOXDOCK_PUBLIC_ORIGIN || (domain && `https://${domain}`);
 const port = Number(process.env.PORT || 8787);
+const waPort = port === 18081 ? 28081 : 18081;
+const backendPort = port === 18082 ? 28082 : 18082;
 if (!origin || !process.env.OPENAI_API_KEY || !Number.isInteger(port) || port < 1 || port > 65535) {
   console.error('Set OPENAI_API_KEY and assign a Railway public domain (or set VOXDOCK_PUBLIC_ORIGIN).');
   process.exit(1);
@@ -33,19 +35,19 @@ const config = {
   security: { control_token_file: control },
   console: { enabled: true, public_origin: origin },
   calling: { enabled: false, max_call_seconds: 300, daily_live_seconds: 1200 },
-  channels: { telegram: { enabled: false }, whatsapp: { enabled: false, endpoint: 'http://127.0.0.1:8080', media_token_file: media } },
+  channels: { telegram: { enabled: false }, whatsapp: { enabled: false, endpoint: `http://127.0.0.1:${waPort}`, media_token_file: media } },
   targets: [],
   live: { api_key_file: openai, language: 'en', instructions: 'Speak naturally and match the caller’s language, including mixed languages. Keep replies short. This is a voice quality test; do not invent a product. Avoid delegating tasks.' },
-  backend: { id: 'test', base_url: 'http://127.0.0.1:8090', request_token_file: request, event_signing_key_file: signing },
+  backend: { id: 'test', base_url: `http://127.0.0.1:${backendPort}`, request_token_file: request, event_signing_key_file: signing },
   records: { transcript_retention_days: 0 },
   timezone: 'Asia/Kuala_Lumpur',
 };
 const configPath = join(data, 'railway.config.json');
 writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-const env = { ...process.env, WACALLS_MEDIA_SECRET_FILE: media, BACKEND_REQUEST_TOKEN_FILE: request, BACKEND_EVENT_SIGNING_KEY_FILE: signing, EXAMPLE_BACKEND_DATABASE: join(data, 'backend.sqlite'), EXAMPLE_BACKEND_MODE: 'simulation' };
+const env = { ...process.env, WACALLS_MEDIA_SECRET_FILE: media, BACKEND_REQUEST_TOKEN_FILE: request, BACKEND_EVENT_SIGNING_KEY_FILE: signing, EXAMPLE_BACKEND_DATABASE: join(data, 'backend.sqlite'), EXAMPLE_BACKEND_PORT: String(backendPort), EXAMPLE_BACKEND_MODE: 'simulation' };
 delete env.OPENAI_API_KEY;
 const children = [
-  spawn('/opt/wacalls/wacalls-server', ['-addr', '127.0.0.1:8080', '-db', join(data, 'wacalls.db'), '-static', '/opt/wacalls/client', '-max-calls-per-session', '1'], { env, stdio: 'inherit' }),
+  spawn('/opt/wacalls/wacalls-server', ['-addr', `127.0.0.1:${waPort}`, '-db', join(data, 'wacalls.db'), '-static', '/opt/wacalls/client', '-max-calls-per-session', '1'], { env, stdio: 'inherit' }),
   spawn('node', ['--import', 'tsx', 'examples/backend/src/cli.ts'], { env, stdio: 'inherit' }),
   spawn('node', ['--import', 'tsx', 'apps/bridge/src/cli.ts', 'serve', '--config', configPath], { env, stdio: 'inherit' }),
 ];

@@ -162,7 +162,10 @@ export async function startService(
     const port = Number(config.service.listen.slice(separator + 1));
     const address = await app.listen({ host, port });
     return { address, close };
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,48}$/.test(code))
+      process.stderr.write(`service_start_error_code=${code}\n`);
     try {
       await close();
     } catch {}
