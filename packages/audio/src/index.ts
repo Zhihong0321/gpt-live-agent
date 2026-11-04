@@ -16,14 +16,14 @@ export function pcmDurationMs(pcm: Uint8Array, rate: PcmRate): number {
 
 /** Conservative speech-energy check for PCM16LE. Silent frames remain below
  * the threshold, so continuous digital silence is not mistaken for playback. */
-export function hasAudiblePcm(pcm: Uint8Array): boolean {
+export function hasAudiblePcm(pcm: Uint8Array, threshold = 200): boolean {
   const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
   const samplesPerWindow = 320;
   for (let start = 0; start + 1 < pcm.byteLength; start += samplesPerWindow * 2) {
     const end = Math.min(pcm.byteLength - pcm.byteLength % 2, start + samplesPerWindow * 2);
     let sum = 0, count = 0;
     for (let i = start; i + 1 < end; i += 2) { const v = view.getInt16(i, true); sum += v * v; count++; }
-    if (count && Math.sqrt(sum / count) >= 200) return true;
+    if (count && Math.sqrt(sum / count) >= threshold) return true;
   }
   return false;
 }
@@ -51,6 +51,29 @@ export class PcmFrameQueue {
     if (discard > 0 && onDiscard) onDiscard(all.subarray(0, discard));
     this.pending = Buffer.from(all.subarray(discard));
     return Math.min(discard, all.length);
+  }
+  /** Trim near-silence first when playback is late; preserve speech up to the
+   * hard capacity and only then discard oldest complete samples. */
+  pushPreferSpeech(bytes: Uint8Array, targetMs: number, onDiscard?: (discarded: Uint8Array) => void): number {
+    let all = Buffer.concat([this.pending, bytes]);
+    const target = frameBytes(this.rate, targetMs);
+    if (target > this.capacity) throw new Error('Target exceeds capacity');
+    let removed = 0;
+    let excess = Math.max(0, all.length - target);
+    if (excess >= this.bytesPerFrame) {
+      const kept: Buffer[] = [];
+      for (let i = 0; i < all.length; i += this.bytesPerFrame) {
+        const frame = all.subarray(i, i + this.bytesPerFrame);
+        if (frame.length === this.bytesPerFrame && excess >= frame.length && !hasAudiblePcm(frame, 50)) {
+          excess -= frame.length; removed += frame.length; onDiscard?.(frame);
+        } else kept.push(frame);
+      }
+      all = Buffer.concat(kept);
+    }
+    const discard = Math.ceil(Math.max(0, all.length - this.capacity) / 2) * 2;
+    if (discard) { onDiscard?.(all.subarray(0, discard)); removed += Math.min(discard, all.length); }
+    this.pending = Buffer.from(all.subarray(discard));
+    return removed;
   }
   take(silenceOnUnderrun = false): Buffer | undefined {
     if (this.pending.length < this.bytesPerFrame) {

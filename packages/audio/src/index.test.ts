@@ -23,6 +23,23 @@ it('bounds playback and keeps the newest complete samples on overflow', () => {
   expect(q.bufferedBytes).toBe(640);
   expect(q.take()).toEqual(Buffer.alloc(640, 2));
 });
+it('trims silence first and keeps speech in order under playback pressure', () => {
+  const q = new PcmFrameQueue(16000, 20, 60);
+  const speech1 = Buffer.alloc(640); const speech2 = Buffer.alloc(640);
+  for (let i = 0; i < 640; i += 2) { speech1.writeInt16LE(10000, i); speech2.writeInt16LE(-10000, i); }
+  q.push(Buffer.concat([speech1, Buffer.alloc(640)]));
+  expect(q.pushPreferSpeech(speech2, 20)).toBe(640);
+  expect(q.take()).toEqual(speech1);
+  expect(q.take()).toEqual(speech2);
+});
+it('retains speech above the latency target until the hard buffer limit', () => {
+  const q = new PcmFrameQueue(16000, 20, 60);
+  const speech = Buffer.alloc(640); for (let i = 0; i < 640; i += 2) speech.writeInt16LE(10000, i);
+  expect(q.pushPreferSpeech(Buffer.concat([speech, speech]), 20)).toBe(0);
+  expect(q.bufferedBytes).toBe(1280);
+  expect(q.pushPreferSpeech(Buffer.concat([speech, speech]), 20)).toBe(640);
+  expect(q.bufferedBytes).toBe(1920);
+});
 it('maintains nominal cadence under recurring timer lateness for a full minute', () => {
   const q = new PcmFrameQueue(16000, 20, 500);
   let sent = 0, produced = 0, peak = 0;

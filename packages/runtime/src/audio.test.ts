@@ -91,6 +91,17 @@ test('does not disconnect when generated audio exceeds the playback buffer', () 
   finally { audio.close(); }
 });
 
+test('preserves a two-second burst of speech above the latency target', () => {
+  const fail = vi.fn();
+  const voice: VoiceDriver = { rate: 16000, frameMs: 20, dial: async () => 'call', accept: async ref => ref,
+    reject: async () => {}, end: async () => {}, close: async () => {}, writeAudio: async () => {} };
+  const live: RuntimeLive = { start() {}, appendAudio() {}, close() {}, commentary: () => 'c', instructions: () => 'i', thinking: () => 't' };
+  const audio = new CallAudio(voice, 'call', 16000, live, fail);
+  const speech = Buffer.alloc(64000); for (let i = 0; i < speech.length; i += 2) speech.writeInt16LE(10000, i);
+  try { audio.play(speech); expect(audio.metrics().output_dropped_ms).toBe(0); expect(audio.metrics().max_output_queue_ms).toBe(2000); }
+  finally { audio.close(); }
+});
+
 test('does not disconnect on an oversized inbound burst', () => {
   const fail = vi.fn();
   const voice: VoiceDriver = { rate: 16000, frameMs: 20, dial: async () => 'call', accept: async ref => ref,

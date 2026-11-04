@@ -24,12 +24,13 @@ export class CallAudio {
   private inputDroppedMs = 0;
   private inputAudibleDroppedMs = 0;
   private outputDroppedMs = 0;
+  private outputAudibleDroppedMs = 0;
   constructor(private readonly voice: VoiceDriver, private readonly ref: string, rate: 16000 | 24000,
     private readonly live: RuntimeLive, private readonly fail: (reason: AudioFailureReason) => void, resampler?: RuntimeDependencies['resampler']) {
     // Keep the previously working input headroom; log drops to assess tradeoffs.
     this.input = new PcmFrameQueue(rate, 20, 2000);
     // Model audio can arrive in bursts faster than real-time playback.
-    this.output = new PcmFrameQueue(voice.rate, voice.frameMs, 1500);
+    this.output = new PcmFrameQueue(voice.rate, voice.frameMs, 3000);
     this.inputPacer = new PcmPacer(this.input, pcm => {
       try { this.live.appendAudio(pcm); } catch { this.failed('audio_live_write_failed'); }
     });
@@ -67,7 +68,13 @@ export class CallAudio {
   }
   private enqueueOutput(pcm: Buffer): void {
     if (!this.stopped) {
-      const dropped = this.output.pushLatest(pcm);
+      const dropped = this.output.pushPreferSpeech(pcm, 1500, discarded => {
+        const windowBytes = this.output.bytesPerFrame;
+        for (let i = 0; i < discarded.byteLength; i += windowBytes) {
+          const window = discarded.subarray(i, i + windowBytes);
+          if (hasAudiblePcm(window)) this.outputAudibleDroppedMs += window.byteLength / (this.output.rate * 2) * 1000;
+        }
+      });
       this.outputDroppedMs += dropped / (this.output.rate * 2) * 1000;
       this.outputHighWaterMs = Math.max(this.outputHighWaterMs, this.output.bufferedBytes / (this.output.rate * 2) * 1000);
     }
@@ -92,6 +99,7 @@ export class CallAudio {
       input_dropped_ms: Math.round(this.inputDroppedMs),
       input_audible_dropped_ms: Math.round(this.inputAudibleDroppedMs),
       output_dropped_ms: Math.round(this.outputDroppedMs),
+      output_audible_dropped_ms: Math.round(this.outputAudibleDroppedMs),
     };
   }
   private tick(): void {
