@@ -16,6 +16,13 @@ it('paces silence and media without catchup bursts, releasing retained samples o
   expect(frames).toEqual([Buffer.alloc(640), Buffer.alloc(640)]);
   q.push(Buffer.alloc(10)); p.stop(); expect(q.bufferedBytes).toBe(0); expect(p.tick(2000)).toBe(false);
 });
+it('bounds playback and keeps the newest complete samples on overflow', () => {
+  const q = new PcmFrameQueue(16000, 20, 20);
+  q.push(Buffer.alloc(640, 1));
+  q.pushLatest(Buffer.alloc(640, 2));
+  expect(q.bufferedBytes).toBe(640);
+  expect(q.take()).toEqual(Buffer.alloc(640, 2));
+});
 it('maintains nominal cadence under recurring timer lateness for a full minute', () => {
   const q = new PcmFrameQueue(16000, 20, 500);
   let sent = 0, produced = 0, peak = 0;

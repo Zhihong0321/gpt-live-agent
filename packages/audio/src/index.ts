@@ -44,6 +44,12 @@ export class PcmFrameQueue {
     if (this.pending.length + bytes.byteLength > this.capacity) throw new Error('Audio backpressure');
     this.pending = Buffer.concat([this.pending, bytes]);
   }
+  /** Keep the most recent complete PCM samples when a playback queue is full. */
+  pushLatest(bytes: Uint8Array): void {
+    const all = Buffer.concat([this.pending, bytes]);
+    const discard = Math.ceil(Math.max(0, all.length - this.capacity) / 2) * 2;
+    this.pending = Buffer.from(all.subarray(discard));
+  }
   take(silenceOnUnderrun = false): Buffer | undefined {
     if (this.pending.length < this.bytesPerFrame) {
       if (!silenceOnUnderrun) return undefined;

@@ -38,7 +38,7 @@ export class CallAudio {
     if (voice.rate !== rate) {
       this.toLive = factory(voice.rate, rate); this.toPhone = factory(rate, voice.rate);
       this.toLive.on('data', (pcm: Buffer) => this.enqueue(this.input, pcm, 'audio_input_overflow'));
-      this.toPhone.on('data', (pcm: Buffer) => this.enqueue(this.output, pcm, 'audio_output_overflow'));
+      this.toPhone.on('data', (pcm: Buffer) => this.enqueueOutput(pcm));
       this.toLive.on('error', () => this.failed('audio_input_resampler_failed'));
       this.toPhone.on('error', () => this.failed('audio_output_resampler_failed'));
     }
@@ -48,6 +48,9 @@ export class CallAudio {
     if (this.stopped) return;
     try { queue.push(pcm); } catch { this.failed(reason); }
   }
+  private enqueueOutput(pcm: Buffer): void {
+    if (!this.stopped) this.output.pushLatest(pcm);
+  }
   receive(pcm: Buffer): void {
     if (this.stopped) return;
     if (!this.toLive) { this.enqueue(this.input, pcm, 'audio_input_overflow'); return; }
@@ -56,7 +59,7 @@ export class CallAudio {
   }
   play(pcm: Buffer): void {
     if (this.stopped) return;
-    if (!this.toPhone) { this.enqueue(this.output, pcm, 'audio_output_overflow'); return; }
+    if (!this.toPhone) { this.enqueueOutput(pcm); return; }
     try { if (!this.toPhone.write(pcm)) this.failed('audio_output_resampler_failed'); }
     catch { this.failed('audio_output_resampler_failed'); }
   }
