@@ -8,6 +8,7 @@ test('default client delegation keeps tools in the external backend', () => {
   expect(session.delegation).toEqual({ type: 'client' });
   expect(session.voice).toBe('marin');
   expect(session.instructions).toContain('Stay silent until the opening instruction');
+  expect(session.instructions).toContain('Follow the configured opening and permission sequence');
 });
 
 test('managed delegation maps every supported setting to the Live wire contract', () => {
