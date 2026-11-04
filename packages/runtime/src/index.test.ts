@@ -79,6 +79,7 @@ test('coordinator dials after context, greets once, delegates with transcript re
     expect(f.context).toHaveBeenCalledTimes(2);
     expect(f.store.getCall(call.call_id)).toMatchObject({ state: 'connected', audio_ready: true, live_ready: true, provider_call_ref: 'provider' });
     expect(f.output.filter(item => item.kind === 'instructions')).toHaveLength(1);
+    expect(f.output.find(item => item.kind === 'instructions')?.text).toContain('opening and permission sequence');
     expect(f.output.filter(item => item.kind === 'commentary')).toHaveLength(0);
     expect(f.output.some(item => item.kind === 'thinking' && item.text.includes('Tests passed'))).toBe(true);
     f.callbacks.audioReady('provider'); await f.flush();
@@ -213,7 +214,7 @@ test('audio overflow records its fixed boundary reason before platform cleanup',
   try {
     const call = request(f.store);
     await f.runtime.onCallCreated(call); await f.flush();
-    f.emit({ type: 'audio', pcm: Buffer.alloc(48001) });
+    f.emit({ type: 'audio', pcm: Buffer.alloc(480001) });
     await f.flush();
     expect(f.end).toHaveBeenCalledOnce();
     expect(f.store.getCall(call.call_id)).toMatchObject({ state: 'ended', reason: 'audio_output_overflow' });

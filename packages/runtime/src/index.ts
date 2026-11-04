@@ -118,7 +118,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
       const facts = JSON.stringify({ purpose: context.purpose, facts: context.facts, language: config.live.language });
       if (Buffer.byteLength(facts) > 8000) throw new Error('Context exceeds bounded spoken briefing');
       for (const part of chunks(facts)) a.live.thinking(`Business context data: ${part}`);
-      if (config.live.greeting_enabled) a.live.instructions('Immediately greet without waiting for the caller. Introduce yourself as an AI assistant in the language supplied with the context, briefly explain the purpose and verified facts, then pause and listen.');
+      if (config.live.greeting_enabled) a.live.instructions('Begin the call now in the configured language. Follow the opening and permission sequence in your original instructions. If no opening sequence was specified, introduce yourself as an AI assistant, state the purpose briefly, and listen.');
       a.greeted = true;
     } catch { await stop(a, 'opening_context_failed'); }
   }
