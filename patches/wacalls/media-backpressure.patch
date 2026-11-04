@@ -1,0 +1,56 @@
+diff --git a/cmd/server/media.go b/cmd/server/media.go
+index 573b316..b6c9118 100644
+--- a/cmd/server/media.go
++++ b/cmd/server/media.go
+@@ -193,9 +193,17 @@ func (b *socketMedia) WritePCM(pcm []float32) error {
+ 	case b.queue <- data:
+ 		return nil
+ 	default:
+-		log.Print("media_disconnect=outbound_queue_overflow")
+-		b.closeLocked()
+-		return errors.New("media output overflow")
++		// Prefer current speech over stale frames if a short scheduling stall
++		// fills the bounded queue. Never disconnect a call for this condition.
++		select {
++		case <-b.queue:
++		default:
++		}
++		select {
++		case b.queue <- data:
++		default:
++		}
++		return nil
+ 	}
+ }
+ func (b *socketMedia) write(kind websocket.MessageType, data []byte) error {
+diff --git a/cmd/server/media_test.go b/cmd/server/media_test.go
+index bf58643..6006cdd 100644
+--- a/cmd/server/media_test.go
++++ b/cmd/server/media_test.go
+@@ -141,7 +141,7 @@ func TestMediaAttachmentExclusive(t *testing.T) {
+ 	}
+ }
+ 
+-func TestMediaOutputOverflowClosesAndReleasesAudio(t *testing.T) {
++func TestMediaOutputOverflowKeepsRecentAudioAndConnection(t *testing.T) {
+ 	bridges := make(chan *socketMedia, 1)
+ 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		conn, err := websocket.Accept(w, r, nil)
+@@ -166,12 +166,13 @@ func TestMediaOutputOverflowClosesAndReleasesAudio(t *testing.T) {
+ 			t.Fatal(err)
+ 		}
+ 	}
+-	if err := b.WritePCM(make([]float32, 320)); err == nil {
+-		t.Fatal("overflow accepted")
++	if err := b.WritePCM(make([]float32, 320)); err != nil {
++		t.Fatal("overflow disconnected the call")
+ 	}
+-	if len(b.queue) != 0 {
+-		t.Fatal("audio retained after closure")
++	if len(b.queue) != 8 {
++		t.Fatal("queue must remain bounded")
+ 	}
++	b.Close()
+ 	if err := b.WritePCM(make([]float32, 320)); err == nil {
+ 		t.Fatal("closed media accepted audio")
+ 	}

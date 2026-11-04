@@ -24,6 +24,9 @@ RUN git apply --check /tmp/qr-refresh.patch && git apply /tmp/qr-refresh.patch
 COPY patches/wacalls/media-diagnostics.patch /tmp/media-diagnostics.patch
 RUN git apply --check /tmp/media-diagnostics.patch && git apply /tmp/media-diagnostics.patch
 
+COPY patches/wacalls/media-backpressure.patch /tmp/media-backpressure.patch
+RUN git apply --check /tmp/media-backpressure.patch && git apply /tmp/media-backpressure.patch
+
 FROM node:24.21.0-bookworm-slim AS client
 WORKDIR /client
 COPY --from=source /source/client/ ./
@@ -35,7 +38,7 @@ RUN go get go.mau.fi/whatsmeow@v0.0.0-20261102152715-54038813c47f \
  && CGO_ENABLED=0 go build -trimpath -o /out/wacalls-server ./cmd/server \
  && go list -m -json all > /out/dependencies.json \
  && git rev-parse HEAD > /out/source-revision.txt \
- && sha256sum /tmp/media-websocket.patch /tmp/console-connections.patch /tmp/target-pairing.patch /tmp/account-unlink.patch /tmp/qr-refresh.patch /tmp/media-diagnostics.patch /out/wacalls-server > /out/checksums.txt
+ && sha256sum /tmp/media-websocket.patch /tmp/console-connections.patch /tmp/target-pairing.patch /tmp/account-unlink.patch /tmp/qr-refresh.patch /tmp/media-diagnostics.patch /tmp/media-backpressure.patch /out/wacalls-server > /out/checksums.txt
 
 FROM debian:bookworm-slim AS wacalls-runtime
 RUN apt-get update \
