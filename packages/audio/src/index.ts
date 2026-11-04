@@ -45,10 +45,11 @@ export class PcmFrameQueue {
     this.pending = Buffer.concat([this.pending, bytes]);
   }
   /** Keep the most recent complete PCM samples when a playback queue is full. */
-  pushLatest(bytes: Uint8Array): void {
+  pushLatest(bytes: Uint8Array): number {
     const all = Buffer.concat([this.pending, bytes]);
     const discard = Math.ceil(Math.max(0, all.length - this.capacity) / 2) * 2;
     this.pending = Buffer.from(all.subarray(discard));
+    return Math.min(discard, all.length);
   }
   take(silenceOnUnderrun = false): Buffer | undefined {
     if (this.pending.length < this.bytesPerFrame) {

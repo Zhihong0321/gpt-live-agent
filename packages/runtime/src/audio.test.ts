@@ -82,7 +82,12 @@ test('does not disconnect when generated audio exceeds the playback buffer', () 
   };
   const live: RuntimeLive = { start() {}, appendAudio() {}, close() {}, commentary: () => 'c', instructions: () => 'i', thinking: () => 't' };
   const audio = new CallAudio(voice, 'call', 16000, live, fail);
-  try { audio.play(Buffer.alloc(160002)); expect(fail).not.toHaveBeenCalled(); }
+  try {
+    audio.play(Buffer.alloc(160000));
+    expect(fail).not.toHaveBeenCalled();
+    expect(audio.metrics().max_output_queue_ms).toBe(1500);
+    expect(audio.metrics().output_dropped_ms).toBe(3500);
+  }
   finally { audio.close(); }
 });
 
@@ -92,7 +97,12 @@ test('does not disconnect on an oversized inbound burst', () => {
     reject: async () => {}, end: async () => {}, close: async () => {}, writeAudio: async () => {} };
   const live: RuntimeLive = { start() {}, appendAudio() {}, close() {}, commentary: () => 'c', instructions: () => 'i', thinking: () => 't' };
   const audio = new CallAudio(voice, 'call', 16000, live, fail);
-  try { audio.receive(Buffer.alloc(64000)); audio.receive(Buffer.alloc(640)); expect(fail).not.toHaveBeenCalled(); }
+  try {
+    audio.receive(Buffer.alloc(64000)); audio.receive(Buffer.alloc(640));
+    expect(fail).not.toHaveBeenCalled();
+    expect(audio.metrics().max_input_queue_ms).toBe(500);
+    expect(audio.metrics().input_dropped_ms).toBe(1520);
+  }
   finally { audio.close(); }
 });
 
