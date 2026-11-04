@@ -7,6 +7,7 @@ import type { CallStore } from '@voxdock/core';
 import type { BackendContext, CallStatus, Channel, Delegation, DelegationResult, TranscriptFragment } from '@voxdock/contracts';
 import { LiveClient, createOpenAITransport, type LiveEvent } from '@voxdock/live';
 import { CallAudio } from './audio.js';
+import { ClosingDetector } from './closing.js';
 import { deadline } from './deadline.js';
 import { liveSessionSettings } from './live-settings.js';
 import { createTelegramProcess } from './telegram-process.js';
@@ -26,6 +27,7 @@ interface Active {
   finalTimer?: ReturnType<typeof setTimeout>; liveFinalized: boolean;
   finalized?: Promise<void>; resolveFinalized?: () => void;
   transcriptIds: Set<string>;
+  closing?: ClosingDetector;
 }
 function chunks(text: string, maxBytes = 450): string[] {
   const result: string[] = []; let part = '';
@@ -63,6 +65,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     try { store.transition(a.callId, state, patch); } catch { /* Late provider events cannot undo durable state. */ }
   }
   function clearMedia(a: Active): void {
+    a.closing?.close(); delete a.closing;
     a.audio?.close(); delete a.audio;
     clearTimeout(a.ringTimer); clearTimeout(a.durationTimer); clearTimeout(a.warningTimer);
     for (const item of a.delegations.values()) clearTimeout(item.timer);
@@ -125,6 +128,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
   function transcript(a: Active, event: Extract<LiveEvent, { type: 'transcript' }>): void {
     if (!a.sessionId || a.stopping || !event.delta) return;
     if (event.eventId) { if (a.transcriptIds.has(event.eventId)) return; a.transcriptIds.add(event.eventId); }
+    if (event.speaker === 'assistant') a.closing?.transcript(event.delta);
     if (a.fragments.length >= 500 || event.delta.length > 16000) { void stop(a, 'transcript_capacity'); return; }
     a.revision++;
     const fragment: TranscriptFragment = { id: randomUUID(), session_id: a.sessionId, speaker: event.speaker,
@@ -191,8 +195,9 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
       if (event.type === 'ready') {
         a.sessionId = event.sessionId; safeTransition(a, 'connected', { live_ready: true });
         a.audio = new CallAudio(a.route.voice, a.providerRef!, config.live.sample_rate_hz[a.route.target.channel], a.live!, reason => { void stop(a, reason); }, dependencies.resampler);
+        a.closing = new ClosingDetector(() => a.audio?.hasPendingOutput() ?? false, () => { if (current(a) && !a.stopping) void stop(a, 'conversation_complete'); });
         void greet(a);
-      } else if (event.type === 'audio') a.audio?.play(event.pcm);
+      } else if (event.type === 'audio') { a.closing?.audio(); a.audio?.play(event.pcm); }
       else if (event.type === 'transcript') transcript(a, event);
       else if (event.type === 'delegation') {
         if (event.target === 'responses') recordManagedDelegation(a, event.id, event.offsetMs);
