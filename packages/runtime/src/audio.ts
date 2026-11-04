@@ -8,7 +8,7 @@ export type AudioFailureReason =
   | 'audio_input_resampler_failed' | 'audio_output_resampler_failed'
   | 'audio_live_write_failed' | 'audio_phone_write_failed' | 'audio_phone_write_pending';
 
-/** One paced duplex route. Queues remain bounded and overflow ends the call. */
+/** One paced duplex route; temporary audio congestion drops stale frames. */
 export class CallAudio {
   private readonly input: PcmFrameQueue;
   private readonly output: PcmFrameQueue;
@@ -28,7 +28,8 @@ export class CallAudio {
       try { this.live.appendAudio(pcm); } catch { this.failed('audio_live_write_failed'); }
     });
     this.outputPacer = new PcmPacer(this.output, pcm => {
-      if (this.writing) { this.failed('audio_phone_write_pending'); return; }
+      // A slow write must not terminate the call or create parallel writes.
+      if (this.writing) return;
       this.writing = true;
       try {
         void this.voice.writeAudio(this.ref, pcm).catch(() => this.failed('audio_phone_write_failed')).finally(() => { this.writing = false; });
@@ -46,7 +47,7 @@ export class CallAudio {
   }
   private enqueue(queue: PcmFrameQueue, pcm: Buffer, reason: AudioFailureReason): void {
     if (this.stopped) return;
-    try { queue.push(pcm); } catch { this.failed(reason); }
+    try { queue.pushLatest(pcm); } catch { this.failed(reason); }
   }
   private enqueueOutput(pcm: Buffer): void {
     if (!this.stopped) this.output.pushLatest(pcm);

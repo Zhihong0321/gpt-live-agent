@@ -73,7 +73,10 @@ export class LiveClient {
   appendAudio(pcm: Uint8Array): void {
     this.requireReady();
     if (!pcm.byteLength || pcm.byteLength % 2 || pcm.byteLength > this.config.rate * 2) throw new Error('Invalid PCM16 chunk');
-    this.send({ type: 'session.input_audio.append', audio: Buffer.from(pcm).toString('base64') });
+    const event = { type: 'session.input_audio.append', audio: Buffer.from(pcm).toString('base64') };
+    // Skip stale input rather than ending the whole call for a temporary stall.
+    if (this.transport.bufferedAmount + Buffer.byteLength(JSON.stringify(event)) > this.config.maxBufferedBytes) return;
+    this.send(event);
   }
   commentary(content: string, delegationId: string | null = null): string {
     return this.append('commentary', content, delegationId);

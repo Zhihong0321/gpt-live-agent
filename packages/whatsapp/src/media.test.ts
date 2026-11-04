@@ -48,10 +48,12 @@ describe('WaCalls call-bound media', () => {
     expect(() => session.writeAudio(Buffer.alloc(3))).toThrow('Invalid media PCM');
     expect(() => session.writeAudio(Buffer.alloc(6402))).toThrow('Invalid media PCM');
     s.socket.bufferedAmount = 32000;
-    expect(() => session.writeAudio(Buffer.alloc(640))).toThrow('backpressure');
+    expect(() => session.writeAudio(Buffer.alloc(640))).not.toThrow();
     s.socket.emit('message', Buffer.alloc(640), true);
-    expect(s.onAudio).not.toHaveBeenCalled(); expect(s.onClosed).toHaveBeenCalledExactlyOnceWith('backpressure');
-    expect(() => session.writeAudio(Buffer.alloc(640))).toThrow('not ready');
+    expect(s.onAudio).toHaveBeenCalledOnce(); expect(s.onClosed).not.toHaveBeenCalled();
+    s.socket.bufferedAmount = 0;
+    expect(() => session.writeAudio(Buffer.alloc(640))).not.toThrow();
+    session.close();
   });
   it('aborts stalled token fetch and an unfinished handshake without exposing fetch errors', async () => {
     const a = new AbortController();

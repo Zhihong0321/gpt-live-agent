@@ -115,6 +115,15 @@ test('applies the configured spoken language to opening context', async () => {
     expect(f.output.filter(item => item.kind === 'thinking').map(item => item.text).join('')).toContain('"language":"zh-CN"');
   } finally { await f.close(); }
 });
+test('keeps the call connected after more than 500 transcript fragments', async () => {
+  const f = await fixture();
+  try {
+    const call = request(f.store); await f.runtime.onCallCreated(call); await f.flush();
+    for (let i = 0; i < 550; i++) f.emit({ type: 'transcript', speaker: 'user', delta: 'a', startMs: i, endMs: i + 1, eventId: `e${i}` });
+    expect(f.end).not.toHaveBeenCalled();
+    expect(f.store.getCall(call.call_id).state).toBe('connected');
+  } finally { await f.close(); }
+});
 test('a pause during asynchronous preflight prevents the platform side effect', async () => {
   const f = await fixture();
   try {

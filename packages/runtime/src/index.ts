@@ -129,7 +129,10 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     if (!a.sessionId || a.stopping || !event.delta) return;
     if (event.eventId) { if (a.transcriptIds.has(event.eventId)) return; a.transcriptIds.add(event.eventId); }
     if (event.speaker === 'assistant') a.closing?.transcript(event.delta);
-    if (a.fragments.length >= 500 || event.delta.length > 16000) { void stop(a, 'transcript_capacity'); return; }
+    if (event.delta.length > 16000) { void stop(a, 'transcript_capacity'); return; }
+    // Bound the in-memory delegation window without ending longer calls.
+    // The separately configured transcript store retains the full record.
+    if (a.fragments.length >= 500) a.fragments.shift();
     a.revision++;
     const fragment: TranscriptFragment = { id: randomUUID(), session_id: a.sessionId, speaker: event.speaker,
       seq: a.seq++, start_ms: Math.floor(event.startMs), end_ms: Math.floor(event.endMs), text: event.delta, final: false, context_revision: a.revision };

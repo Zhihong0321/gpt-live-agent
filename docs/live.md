@@ -24,9 +24,9 @@ During closing, late transcript/usage and existing managed-response finalization
 
 ## Audio transport
 
-The transport limits incoming WebSocket payloads, disables compression, bounds startup and reports sanitized failure codes. Outgoing buffered bytes are capped; overflow terminates the session rather than silently dropping speech. It never automatically reconnects, replays commands or redials. Applications stop capture/playback when the session closes.
+The transport limits incoming WebSocket payloads, disables compression, bounds startup and reports sanitized failure codes. Under temporary input congestion it drops stale audio frames instead of ending the session; control-message and genuine transport failures still surface. It never automatically reconnects, replays commands or redials. Applications stop capture/playback when the session closes.
 
-`@voxdock/audio` provides a bounded PCM queue and a monotonic pacer. At 24 kHz, 20 ms is 480 samples / 960 bytes; at 48 kHz it is 960 samples / 1,920 bytes. Odd network chunk boundaries are preserved. Underrun produces a padded/silent frame; overflow is explicit. Ordinary timer jitter follows nominal sample deadlines. A stall of a complete frame skips missed slots without a catch-up burst.
+`@voxdock/audio` provides a bounded PCM queue and a monotonic pacer. At 24 kHz, 20 ms is 480 samples / 960 bytes; at 48 kHz it is 960 samples / 1,920 bytes. Odd network chunk boundaries are preserved. Underrun produces a padded/silent frame; during queue overflow stale samples may be dropped rather than ending the call. This can make speech incomplete under sustained overload and needs live-call monitoring. Ordinary timer jitter follows nominal sample deadlines. A stall of a complete frame skips missed slots without a catch-up burst.
 
 The queue accepts 16, 24 and 48 kHz but does not resample. `FfmpegResampler` uses a persistent FFmpeg process per direction for 48↔24 kHz conversion, bounded buffers and backpressure, input sample alignment, finite finalization and child cleanup. Raw input probing is limited to 32 bytes because the PCM format is already declared. Supply a trusted executable path and honor stream backpressure.
 

@@ -112,7 +112,8 @@ export async function connectWaCallsMedia(options: WaCallsMediaOptions): Promise
         if (closed || !ready || socket!.readyState !== WebSocket.OPEN) throw new Error('WaCalls media is not ready');
         if (!pcm.byteLength || pcm.byteLength % 2 || pcm.byteLength > maxFrameBytes) throw new Error('Invalid media PCM frame');
         if (socket!.bufferedAmount + pcm.byteLength > maxBufferedBytes) {
-          finish('backpressure'); throw new Error('WaCalls media backpressure');
+          // Drop this frame while the local transport catches up; do not end the call.
+          return;
         }
         try { socket!.send(Buffer.from(pcm), { binary: true }, error => { if (error) finish('send_failed'); }); }
         catch { finish('send_failed'); throw new Error('WaCalls media send failed'); }

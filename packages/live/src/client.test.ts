@@ -52,12 +52,15 @@ describe('Live primary protocol', () => {
     expect(s.events.at(-1)).toMatchObject({ finalization: 'incomplete', reason: 'close_timeout' });
     vi.useRealTimers();
   });
-  it('rejects malformed frames and bounded transport overload', () => {
+  it('rejects malformed frames and skips input audio during transport overload', () => {
     const s = setup(); s.ready(); s.handlers().message('{bad');
     expect(s.events.at(-1)).toMatchObject({ reason: 'malformed_event' });
     const t = setup(); t.ready(); t.transport.bufferedAmount = 128000;
-    expect(() => t.client.appendAudio(Buffer.alloc(960))).toThrow('backpressure');
-    expect(t.events.at(-1)).toMatchObject({ reason: 'backpressure' });
+    expect(() => t.client.appendAudio(Buffer.alloc(960))).not.toThrow();
+    expect(t.transport.terminate).not.toHaveBeenCalled();
+    t.transport.bufferedAmount = 0;
+    t.client.appendAudio(Buffer.alloc(960));
+    expect(t.sent.at(-1)?.type).toBe('session.input_audio.append');
   });
   it('bounds startup and reports incomplete usage even without socket close', () => {
     vi.useFakeTimers(); const s = setup({ startTimeoutMs: 10 });
