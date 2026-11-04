@@ -1,0 +1,32 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+      - name: Verify MCP stdio tools against a synthetic control server
+        run: pnpm smoke:mcp
+      - name: Run the real CLI with calling disabled
+        run: node --import tsx scripts/smoke-control.mts
+      - name: Check native Telegram binding without an account
+        run: node --import tsx packages/telegram/scripts/native-media-smoke.mts
+      - name: Check actual streaming audio conversion
+        run: |
+          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+          ffmpeg -version | head -n 1
+          node --import tsx packages/audio/scripts/streaming-smoke.ts

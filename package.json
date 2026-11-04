@@ -1,0 +1,26 @@
+{
+  "name": "voxdock",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=10 <11"
+  },
+  "scripts": {
+    "schemas": "node --import tsx scripts/export-schemas.ts",
+    "voxdock": "node --import tsx apps/bridge/src/cli.ts",
+    "typecheck": "tsc --noEmit && pnpm --filter @voxdock/console typecheck",
+    "build": "pnpm --filter @voxdock/console build",
+    "test": "vitest run",
+    "mcp": "node apps/mcp/bin/voxdock-mcp.mjs",
+    "smoke:mcp": "node --import tsx scripts/smoke-mcp.mts"
+  },
+  "devDependencies": {
+    "@types/node": "24.5.2",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}

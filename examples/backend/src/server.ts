@@ -1,0 +1,199 @@
+import Fastify from "fastify";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+import {
+  CallEventSchema,
+  DelegationSchema,
+  type BackendContext,
+  type CallEvent,
+  type Delegation,
+} from "@voxdock/contracts";
+import { tokenMatches, verifyEvent } from "@voxdock/backend";
+import { ExampleConflict, ExampleStore } from "./store.js";
+import { CallbackWorker, type CallbackOptions } from "./callbacks.js";
+import { OpenAIWorker, modelInput, type OpenAIOptions } from "./openai.js";
+const contextRequest = Type.Object(
+  {
+    call_id: Type.String({ minLength: 1, maxLength: 200 }),
+    principal_ref: Type.String({ minLength: 1, maxLength: 200 }),
+    context_ref: Type.String({ minLength: 1, maxLength: 200 }),
+    phase: Type.Union([
+      Type.Literal("before_dial"),
+      Type.Literal("before_greeting"),
+    ]),
+  },
+  { additionalProperties: false },
+);
+export interface ExampleBackendOptions {
+  databasePath: string;
+  requestToken: string;
+  eventSigningKey: string;
+  now?: () => Date;
+  callbacks?: CallbackOptions;
+  openai?: OpenAIOptions;
+  language?: string;
+}
+export function createExampleBackend(options: ExampleBackendOptions) {
+  if (!options.requestToken || !options.eventSigningKey)
+    throw new Error("Example authentication required");
+  const app = Fastify({ logger: false, bodyLimit: 65536 });
+  const now = options.now ?? (() => new Date());
+  const store = new ExampleStore(options.databasePath, now);
+  let callbacks: CallbackWorker | undefined;
+  let model: OpenAIWorker | undefined;
+  try {
+    model = options.openai ? new OpenAIWorker(store, options.openai) : undefined;
+    callbacks = options.callbacks
+      ? new CallbackWorker(store, options.callbacks)
+      : undefined;
+  } catch (error) {
+    store.close();
+    throw error;
+  }
+  // Keep bytes untouched until signature verification. Reject invalid UTF-8 before JSON decoding.
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "buffer" },
+    (_request, body, done) => done(null, body),
+  );
+  app.addHook("preHandler", async (request, reply) => {
+    if (
+      !tokenMatches(
+        `Bearer ${options.requestToken}`,
+        request.headers.authorization,
+      )
+    )
+      return reply.code(401).send({ error: "unauthorized" });
+  });
+  app.setErrorHandler((error, _request, reply) =>
+    reply
+      .code(
+        error instanceof ExampleConflict
+          ? 409
+          : typeof error === "object" &&
+              error !== null &&
+              "statusCode" in error &&
+              typeof error.statusCode === "number" &&
+              error.statusCode >= 400 &&
+              error.statusCode < 500
+            ? error.statusCode
+            : 500,
+      )
+      .send({
+        error: error instanceof ExampleConflict ? "conflict" : "internal_error",
+      }),
+  );
+  app.addHook("onClose", async () => {
+    await model?.close();
+    await callbacks?.close();
+    store.close();
+  });
+  function parse(body: unknown): unknown {
+    if (
+      !Buffer.isBuffer(body) ||
+      !body.equals(Buffer.from(body.toString("utf8"), "utf8"))
+    )
+      return undefined;
+    try {
+      return JSON.parse(body.toString("utf8")) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  app.post("/voice/v1/context", async (request, reply) => {
+    const body = parse(request.body);
+    if (!Value.Check(contextRequest, body))
+      return reply.code(400).send({ error: "invalid_context_request" });
+    const obsolete = body.context_ref.startsWith("obsolete:");
+    const context: BackendContext = {
+      context_revision: 1,
+      obsolete,
+      purpose: model ? "Answer requests through a text-only model." : "Have a short natural conversation to test a multilingual AI voice agent.",
+      facts: [
+        model ? "The backend provides text answers only. It cannot execute code, use tools, access files, or perform external actions. Match the caller’s language." : "This is a voice quality test. Follow the person's language, including mixed languages. Do not invent a product or make business claims.",
+      ],
+      language: options.language ?? "en",
+    };
+    return { call_id: body.call_id, context_ref: body.context_ref, context };
+  });
+  app.post("/voice/v1/delegations", async (request, reply) => {
+    const body = parse(request.body);
+    if (!Value.Check(DelegationSchema, body))
+      return reply.code(400).send({ error: "invalid_delegation" });
+    const input = model ? modelInput(body) : undefined;
+    if (model && input === undefined)
+      return reply.code(400).send({ error: "invalid_model_input" });
+    const receipt = store.delegate(body as Delegation, input);
+    return receipt;
+  });
+  app.post("/voice/v1/events", async (request, reply) => {
+    const timestamp = request.headers["x-voxdock-timestamp"];
+    const signature = request.headers["x-voxdock-signature"];
+    if (
+      !Buffer.isBuffer(request.body) ||
+      !request.body.equals(
+        Buffer.from(request.body.toString("utf8"), "utf8"),
+      ) ||
+      typeof timestamp !== "string" ||
+      typeof signature !== "string" ||
+      !verifyEvent(
+        options.eventSigningKey,
+        timestamp,
+        request.body.toString("utf8"),
+        signature,
+        now(),
+      )
+    )
+      return reply.code(401).send({ error: "invalid_event_signature" });
+    const body = parse(request.body);
+    if (
+      !Value.Check(CallEventSchema, body) ||
+      body.call_id !== body.call.call_id ||
+      body.call_seq !== body.call.revision
+    )
+      return reply.code(400).send({ error: "invalid_event" });
+    store.event(body as CallEvent);
+    return { accepted: true, event_id: body.event_id };
+  });
+  app.addHook("onRequest", async (request, reply) => {
+    if (model && request.url.startsWith("/simulation/")) return reply.code(404).send({ error: "not_found" });
+  });
+  app.get("/simulation/jobs", async () => ({
+    simulation: true,
+    jobs: store.jobs(),
+  }));
+  app.post<{ Params: { job_id: string } }>(
+    "/simulation/jobs/:job_id/complete",
+    async (request, reply) => {
+      const body = parse(request.body);
+      if (
+        !Value.Check(
+          Type.Object(
+            { context_revision: Type.Integer({ minimum: 1 }) },
+            { additionalProperties: false },
+          ),
+          body,
+        )
+      )
+        return reply.code(400).send({ error: "invalid_completion" });
+      return {
+        simulation: true,
+        ...store.complete(request.params.job_id, body.context_revision),
+      };
+    },
+  );
+  app.get("/simulation/callbacks", async () => ({
+    simulation: true,
+    callbacks: store.callbacks(),
+  }));
+  app.post("/simulation/callbacks/deliver", async () => ({
+    simulation: true,
+    ...((await callbacks?.runOnce()) ?? { accepted: 0, failed: 0 }),
+  }));
+  return Object.assign(app, {
+    runModelWork: () => model?.runOnce() ?? Promise.resolve(),
+    deliverCallbacks: () =>
+      callbacks?.runOnce() ?? Promise.resolve({ accepted: 0, failed: 0 }),
+  });
+}
