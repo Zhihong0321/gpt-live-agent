@@ -26,6 +26,7 @@ export type LiveEvent =
   | ManagedResponse
   | { type: 'commentaryAccepted' | 'instructionsAccepted' | 'thinkingAccepted'; clientEventId: string }
   | { type: 'usage'; seconds: number }
+  | { type: 'interrupted' }
   | { type: 'fault'; code: string; clientEventId?: string }
   | { type: 'closed'; finalization: 'complete' | 'incomplete'; reason: string; seconds?: number };
 
@@ -144,6 +145,9 @@ export class LiveClient {
       const pcm = Buffer.from(e.delta, 'base64');
       if (pcm.length % 2) { this.finish(false, 'invalid_audio'); return; }
       if (this.state === 'ready') this.emit({ type: 'audio', pcm });
+    } else if (e.type === 'session.output_audio.interrupted') {
+      // The caller spoke over the assistant: queued speech is stale and should be dropped.
+      if (this.state === 'ready') this.emit({ type: 'interrupted' });
     } else if (e.type === 'session.input_transcript.delta' || e.type === 'session.output_transcript.delta') {
       if (typeof e.delta !== 'string' || !time(e.start_ms) || !time(e.end_ms) || e.end_ms < e.start_ms) { this.finish(false, 'invalid_transcript'); return; }
       this.emit({ type: 'transcript', speaker: e.type === 'session.input_transcript.delta' ? 'user' : 'assistant', delta: e.delta, startMs: e.start_ms, endMs: e.end_ms, ...(typeof e.event_id === 'string' ? { eventId: e.event_id } : {}) });

@@ -91,6 +91,8 @@ export class CallAudio {
     try { if (!this.toPhone.write(pcm)) this.failed('audio_output_resampler_failed'); }
     catch { this.failed('audio_output_resampler_failed'); }
   }
+  /** The caller interrupted: drop speech that has not reached the phone yet. */
+  interrupt(): void { if (!this.stopped) this.output.clear(); }
   hasPendingSpeech(): boolean { return this.output.hasAudibleAudio(); }
   metrics() {
     return {

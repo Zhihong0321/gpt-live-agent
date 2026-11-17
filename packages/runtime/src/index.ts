@@ -5,7 +5,7 @@ import { BackendClient, OutboxWorker } from '@voxdock/backend';
 import type { BridgeConfig } from '@voxdock/config';
 import type { CallStore } from '@voxdock/core';
 import type { BackendContext, CallStatus, Channel, Delegation, DelegationResult, TranscriptFragment } from '@voxdock/contracts';
-import { LiveClient, createOpenAITransport, type LiveEvent } from '@voxdock/live';
+import { LiveClient, createOpenAITransport, createElevenLabsTransport, type LiveEvent } from '@voxdock/live';
 import { CallAudio } from './audio.js';
 import { ClosingDetector } from './closing.js';
 import { deadline } from './deadline.js';
@@ -55,7 +55,12 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
       requestToken: await secret(file(config.backend.request_token_file)), eventSigningKey: await secret(file(config.backend.event_signing_key_file)), timeoutMs: config.backend.ack_timeout_ms });
     if (!dependencies.live && config.live.api_key_file) apiKey = await secret(file(config.live.api_key_file));
   }
-  const liveFactory = dependencies.live ?? ((settings, emit) => new LiveClient(createOpenAITransport(apiKey), settings, emit));
+  const liveFactory = dependencies.live ?? ((settings, emit) => {
+    const rate = settings.rate === 16000 ? 16000 : 24000;
+    const agentId = config.live.elevenlabs?.agent_ids[rate === 16000 ? 'whatsapp' : 'telegram'];
+    // A configured ElevenLabs agent replaces GPT-Live for that channel.
+    return new LiveClient(agentId ? createElevenLabsTransport({ apiKey, agentId, rate }) : createOpenAITransport(apiKey), settings, emit);
+  });
   const current = (a: Active) => active === a && !closing;
   function safeTransition(a: Active, state: CallStatus['state'], patch: Parameters<CallStore['transition']>[2] = {}): void {
     const previous = store.getCall(a.callId);
@@ -201,6 +206,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
         a.closing = new ClosingDetector(() => a.audio?.hasPendingSpeech() ?? false, () => { if (current(a) && !a.stopping) void stop(a, 'conversation_complete'); });
         void greet(a);
       } else if (event.type === 'audio') { a.closing?.audio(event.pcm); a.audio?.play(event.pcm); }
+      else if (event.type === 'interrupted') a.audio?.interrupt();
       else if (event.type === 'transcript') transcript(a, event);
       else if (event.type === 'delegation') {
         if (event.target === 'responses') recordManagedDelegation(a, event.id, event.offsetMs);

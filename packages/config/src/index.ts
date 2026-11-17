@@ -112,7 +112,24 @@ export const BridgeConfigSchema = Type.Object(
     live: Type.Object(
       {
         ...LivePreferencesSchema.properties,
+        // The key file holds the key of whichever provider is configured below (OpenAI by default).
         api_key_file: Type.Optional(path),
+        // When present, calls use these ElevenLabs agents instead of GPT-Live. Each agent's PCM format
+        // is fixed on the agent, so Telegram (24 kHz) and WhatsApp (16 kHz) need separate agents.
+        elevenlabs: Type.Optional(
+          Type.Object(
+            {
+              agent_ids: Type.Object(
+                {
+                  telegram: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]{4,128}$" })),
+                  whatsapp: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9_-]{4,128}$" })),
+                },
+                object,
+              ),
+            },
+            object,
+          ),
+        ),
         store: Type.Literal(false, { default: false }),
         sample_rate_hz: Type.Object(
           {

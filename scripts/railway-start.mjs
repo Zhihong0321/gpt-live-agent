@@ -11,8 +11,8 @@ const origin = process.env.VOXDOCK_PUBLIC_ORIGIN || (domain && `https://${domain
 const port = Number(process.env.PORT || 8787);
 const waPort = port === 18081 ? 28081 : 18081;
 const backendPort = port === 18082 ? 28082 : 18082;
-if (!origin || !process.env.OPENAI_API_KEY || !Number.isInteger(port) || port < 1 || port > 65535) {
-  console.error('Set OPENAI_API_KEY and assign a Railway public domain (or set VOXDOCK_PUBLIC_ORIGIN).');
+if (!origin || !process.env.ELEVENLABS_API_KEY || !Number.isInteger(port) || port < 1 || port > 65535) {
+  console.error('Set ELEVENLABS_API_KEY and assign a Railway public domain (or set VOXDOCK_PUBLIC_ORIGIN).');
   process.exit(1);
 }
 mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -26,9 +26,14 @@ const control = secret('control.token');
 const media = secret('wacalls-media');
 const request = secret('backend-request-token');
 const signing = secret('backend-event-signing-key');
-const openai = join(data, 'openai-api-key');
-writeFileSync(openai, process.env.OPENAI_API_KEY, { mode: 0o600 });
-chmodSync(openai, 0o600);
+const liveKey = join(data, 'elevenlabs-api-key');
+writeFileSync(liveKey, process.env.ELEVENLABS_API_KEY, { mode: 0o600 });
+chmodSync(liveKey, 0o600);
+// ElevenLabs agents (one per phone audio rate); override with these variables if the agents are recreated.
+const agents = {
+  telegram: process.env.ELEVENLABS_AGENT_ID_TELEGRAM || 'agent_7801m7ktzjeheh9axna9597gqwq2',
+  whatsapp: process.env.ELEVENLABS_AGENT_ID_WHATSAPP || 'agent_0801m7ktz1p3f4w9mvpmr17v02rm',
+};
 const config = {
   schema_version: 1,
   service: { listen: `0.0.0.0:${port}`, data_dir: data },
@@ -37,7 +42,7 @@ const config = {
   calling: { enabled: false, max_call_seconds: 300, daily_live_seconds: 1200 },
   channels: { telegram: { enabled: false }, whatsapp: { enabled: false, endpoint: `http://127.0.0.1:${waPort}`, media_token_file: media } },
   targets: [],
-  live: { api_key_file: openai, language: 'en', instructions: 'Speak naturally and match the caller’s language, including mixed languages. Keep replies short. This is a voice quality test; do not invent a product. Avoid delegating tasks.' },
+  live: { api_key_file: liveKey, elevenlabs: { agent_ids: agents }, language: 'en', instructions: 'Persona, voice and language are set on the ElevenLabs agent.' },
   backend: { id: 'test', base_url: `http://127.0.0.1:${backendPort}`, request_token_file: request, event_signing_key_file: signing },
   records: { transcript_retention_days: 0 },
   timezone: 'Asia/Kuala_Lumpur',
@@ -45,7 +50,7 @@ const config = {
 const configPath = join(data, 'railway.config.json');
 writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
 const env = { ...process.env, WACALLS_MEDIA_SECRET_FILE: media, BACKEND_REQUEST_TOKEN_FILE: request, BACKEND_EVENT_SIGNING_KEY_FILE: signing, EXAMPLE_BACKEND_DATABASE: join(data, 'backend.sqlite'), EXAMPLE_BACKEND_PORT: String(backendPort), EXAMPLE_BACKEND_MODE: 'simulation' };
-delete env.OPENAI_API_KEY;
+delete env.ELEVENLABS_API_KEY;
 const children = [
   spawn('/opt/wacalls/wacalls-server', ['-addr', `127.0.0.1:${waPort}`, '-db', join(data, 'wacalls.db'), '-static', '/opt/wacalls/client', '-max-calls-per-session', '1'], { env, stdio: 'inherit' }),
   spawn('node', ['--import', 'tsx', 'examples/backend/src/cli.ts'], { env, stdio: 'inherit' }),

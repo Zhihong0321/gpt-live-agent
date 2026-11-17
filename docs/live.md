@@ -41,3 +41,12 @@ FFMPEG_PATH=/trusted/ffmpeg node --import tsx packages/audio/scripts/streaming-s
 The smoke checks paced 440 Hz input in both conversion directions, output before input closure, final sample counts and the normal frame queue. It measures the local conversion path, not phone latency or perceptual quality. For platform and handset boundaries, see [known limitations](limitations.md).
 
 Official references: [Live WebSockets](https://developers.openai.com/api/docs/guides/voice-websockets?api=live), [delegation](https://developers.openai.com/api/docs/guides/live-delegation), [session management](https://developers.openai.com/api/docs/guides/live-conversations) and [FFmpeg format options](https://ffmpeg.org/ffmpeg-formats.html#Format-Options).
+
+## ElevenLabs agents
+
+When `live.elevenlabs.agent_ids` is configured, calls on that channel use an [ElevenLabs agent](https://elevenlabs.io/docs/eleven-agents/api-reference/eleven-agents/websocket) instead of GPT-Live. `createElevenLabsTransport` adapts the agent WebSocket to the same session messages `LiveClient` already handles, so audio pacing, transcripts, usage and finalization are shared. `live.api_key_file` then holds the ElevenLabs key, which stays on the server (`xi-api-key` header).
+
+- The agent's persona, voice, language and audio format live on the ElevenLabs agent (`apps/bridge/scripts/elevenlabs-agent.mjs` creates or updates one). The format is fixed per agent, so Telegram (`pcm_24000`) and WhatsApp (`pcm_16000`) use separate agents. A format mismatch is logged, not fatal.
+- Per-call business context is sent as `contextual_update`. Greeting and other spoken instructions are sent as a `user_message` prefixed with `[SYSTEM]`, which the agent prompt tells it to treat as the calling system, not the caller.
+- Delegation to the backend is not available: the agent answers by itself. Client tool calls are answered with an error so the agent never waits.
+- Interruptions drop queued speech that has not reached the phone. Usage is wall-clock call time, since the provider reports no final usage.
