@@ -71,6 +71,18 @@ describe('ElevenLabs transport', () => {
     t.client.close();
   });
 
+  it('drops audio from before an interruption but plays newer audio', async () => {
+    const t = await setup();
+    await t.start();
+    t.send({ type: 'interruption', interruption_event: { event_id: 5 } });
+    t.send({ type: 'audio', audio_event: { audio_base_64: Buffer.from([1, 1]).toString('base64'), event_id: 4 } });
+    t.send({ type: 'audio', audio_event: { audio_base_64: Buffer.from([2, 2]).toString('base64'), event_id: 6 } });
+    await t.until(() => t.events.some(e => e.type === 'audio'));
+    await new Promise(r => setTimeout(r, 50));
+    expect(t.events.flatMap(e => (e.type === 'audio' ? [Array.from(e.pcm)] : []))).toEqual([[2, 2]]);
+    t.client.close();
+  });
+
   it('reports interruptions, transcripts and answers pings without ending the call', async () => {
     const t = await setup();
     await t.start();

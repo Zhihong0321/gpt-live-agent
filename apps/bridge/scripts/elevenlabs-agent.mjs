@@ -52,7 +52,7 @@ const conversationConfig = {
   agent: {
     firstMessage: '', // The call opening is triggered by VoxDock once the callee has answered.
     language: 'zh',
-    prompt: { prompt, temperature: 0.5 },
+    prompt: { prompt, temperature: 0.5, maxTokens: -1 }, // Max needs max_tokens >= 1024 or -1.
   },
   tts: { voiceId, agentOutputAudioFormat: format },
   asr: { userInputAudioFormat: format },
@@ -62,4 +62,13 @@ const name = `VoxDock Eternalgy caller (${rate / 1000}k)`;
 const result = existing
   ? await client.conversationalAi.agents.update(existing, { name, conversationConfig })
   : await client.conversationalAi.agents.create({ name, conversationConfig });
-console.log(JSON.stringify({ agent_id: result.agentId ?? existing, name, audio_format: format }));
+const agentId = result.agentId ?? existing;
+// Realtime Max: ElevenLabs manages the LLM, TTS model and ASR itself. This SDK version does not send
+// `realtime_model`, so set it with the REST API directly.
+const realtime = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
+  method: 'PATCH',
+  headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY, 'content-type': 'application/json' },
+  body: JSON.stringify({ conversation_config: { realtime_model: 'eleven_realtime_v1_max' } }),
+});
+if (!realtime.ok) { console.error('Realtime Max was not applied:', realtime.status, (await realtime.text()).slice(0, 300)); process.exitCode = 1; }
+console.log(JSON.stringify({ agent_id: agentId, name, audio_format: format }));

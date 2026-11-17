@@ -25,12 +25,15 @@ export class CallAudio {
   private inputAudibleDroppedMs = 0;
   private outputDroppedMs = 0;
   private outputAudibleDroppedMs = 0;
+  private readonly outputTargetMs: number;
   constructor(private readonly voice: VoiceDriver, private readonly ref: string, rate: 16000 | 24000,
-    private readonly live: RuntimeLive, private readonly fail: (reason: AudioFailureReason) => void, resampler?: RuntimeDependencies['resampler']) {
+    private readonly live: RuntimeLive, private readonly fail: (reason: AudioFailureReason) => void, resampler?: RuntimeDependencies['resampler'], outputBufferMs = 3000) {
     // Keep the previously working input headroom; log drops to assess tradeoffs.
     this.input = new PcmFrameQueue(rate, 20, 2000);
     // Model audio can arrive in bursts faster than real-time playback.
-    this.output = new PcmFrameQueue(voice.rate, voice.frameMs, 3000);
+    // Providers that send a whole sentence at once need a deeper queue; `outputBufferMs` is also the point where trimming starts.
+    this.output = new PcmFrameQueue(voice.rate, voice.frameMs, outputBufferMs);
+    this.outputTargetMs = outputBufferMs === 3000 ? 1500 : outputBufferMs;
     this.inputPacer = new PcmPacer(this.input, pcm => {
       try { this.live.appendAudio(pcm); } catch { this.failed('audio_live_write_failed'); }
     });
@@ -68,7 +71,7 @@ export class CallAudio {
   }
   private enqueueOutput(pcm: Buffer): void {
     if (!this.stopped) {
-      const dropped = this.output.pushPreferSpeech(pcm, 1500, discarded => {
+      const dropped = this.output.pushPreferSpeech(pcm, this.outputTargetMs, discarded => {
         const windowBytes = this.output.bytesPerFrame;
         for (let i = 0; i < discarded.byteLength; i += windowBytes) {
           const window = discarded.subarray(i, i + windowBytes);

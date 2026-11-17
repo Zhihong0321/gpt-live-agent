@@ -202,7 +202,9 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     try {
       if (event.type === 'ready') {
         a.sessionId = event.sessionId; safeTransition(a, 'connected', { live_ready: true });
-        a.audio = new CallAudio(a.route.voice, a.providerRef!, config.live.sample_rate_hz[a.route.target.channel], a.live!, reason => { void stop(a, reason); }, dependencies.resampler);
+        a.audio = new CallAudio(a.route.voice, a.providerRef!, config.live.sample_rate_hz[a.route.target.channel], a.live!, reason => { void stop(a, reason); }, dependencies.resampler,
+          // ElevenLabs sends each reply faster than real time; keep all of it (up to a minute) instead of dropping speech.
+          config.live.elevenlabs?.agent_ids[a.route.target.channel] ? 60000 : undefined);
         a.closing = new ClosingDetector(() => a.audio?.hasPendingSpeech() ?? false, () => { if (current(a) && !a.stopping) void stop(a, 'conversation_complete'); });
         void greet(a);
       } else if (event.type === 'audio') { a.closing?.audio(event.pcm); a.audio?.play(event.pcm); }

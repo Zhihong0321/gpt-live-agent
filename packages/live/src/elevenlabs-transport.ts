@@ -36,6 +36,7 @@ export function createElevenLabsTransport(options: ElevenLabsTransportOptions): 
   let startedAt: number | undefined;
   let finished = false;
   let usageTimer: ReturnType<typeof setInterval> | undefined;
+  let lastInterruptId = 0; // Audio from before an interruption can still arrive afterwards; it must not play.
   let carry: Buffer = Buffer.alloc(0); // PCM16 needs even byte counts; keep a stray odd byte for the next chunk.
 
   const elapsedMs = () => (startedAt === undefined ? 0 : Math.max(0, now() - startedAt));
@@ -76,6 +77,7 @@ export function createElevenLabsTransport(options: ElevenLabsTransportOptions): 
       case 'audio': {
         const audio = object(e.audio_event) ? text(e.audio_event.audio_base_64) : '';
         if (!audio) return;
+        if (object(e.audio_event) && typeof e.audio_event.event_id === 'number' && e.audio_event.event_id < lastInterruptId) return;
         let pcm = Buffer.from(audio, 'base64');
         if (carry.length) { pcm = Buffer.concat([carry, pcm]); carry = Buffer.alloc(0); }
         if (pcm.length % 2) { carry = pcm.subarray(pcm.length - 1); pcm = pcm.subarray(0, pcm.length - 1); }
@@ -83,6 +85,8 @@ export function createElevenLabsTransport(options: ElevenLabsTransportOptions): 
         return;
       }
       case 'interruption': {
+        const ev = object(e.interruption_event) ? e.interruption_event : {};
+        lastInterruptId = Math.max(lastInterruptId, int(ev.event_id));
         carry = Buffer.alloc(0);
         toClient({ type: 'session.output_audio.interrupted' });
         return;
