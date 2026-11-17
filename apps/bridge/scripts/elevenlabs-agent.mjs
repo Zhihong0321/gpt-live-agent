@@ -10,7 +10,7 @@ const flag = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1]
 const rate = Number(flag('--rate') ?? 16000);
 if (![16000, 24000].includes(rate)) { console.error('--rate must be 16000 or 24000'); process.exit(2); }
 const existing = flag('--agent-id');
-const voiceId = flag('--voice-id') ?? 'bhJUNIXWQQ94l8eI2VUf'; // "Amy": young female Mandarin voice that also speaks English.
+const voiceId = flag('--voice-id') ?? 'FUu5jJAN31dt6KeE1fk2'; // "Ann": young female Malaysian Chinese voice (earlier: Amy, bhJUNIXWQQ94l8eI2VUf).
 
 const prompt = `你是丽宁，恒浩能源 Eternalgy Sdn Bhd 的 AI 电话助理。你是 AI，不是人类员工。目标：向企业客户简短介绍来意，确认对方是否有兴趣了解企业能源方案；只有在客户明确同意时，才交由恒浩能源的真人顾问跟进。
 
