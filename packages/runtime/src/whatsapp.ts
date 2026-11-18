@@ -1,9 +1,11 @@
-import { WaCallsControl, normalizePhone, decodeSse, parseCallEvent, connectWaCallsMedia, type WaCallsMediaSession, type WaCallsMediaOptions } from '@voxdock/whatsapp';
-import type { VoiceDriver, VoiceEvents } from './types.js';
+import { WaCallsControl, WaCallsRejected, normalizePhone, decodeSse, parseCallEvent, connectWaCallsMedia, type WaCallsMediaSession, type WaCallsMediaOptions } from '@voxdock/whatsapp';
+import { DialRejected, type VoiceDriver, type VoiceEvents } from './types.js';
 import { deadline } from './deadline.js';
 
 export interface WhatsAppOptions {
   baseUrl: string; sessionId: string; peerId: string; mediaSecret: string;
+  /** Allow `dial` to call numbers other than `peerId` (website visitors who asked for a call). */
+  dynamicTargets?: boolean;
   fetch?: typeof fetch;
   media?: (options: WaCallsMediaOptions) => Promise<WaCallsMediaSession>;
 }
@@ -149,15 +151,29 @@ export async function createWhatsAppDriver(options: WhatsAppOptions, callbacks: 
   return {
     rate: 16000, frameMs: 20,
     async dial(peerId, signal) {
-      if (whatsAppPhone(peerId) !== targetPhone || active || reserving || failed || closed) throw new Error('WhatsApp target or call slot unavailable');
+      let phone: string;
+      try { phone = whatsAppPhone(peerId); } catch { throw new DialRejected('invalid target'); }
+      const dynamic = phone !== targetPhone;
+      if (dynamic && !options.dynamicTargets) throw new Error('WhatsApp target or call slot unavailable');
+      if (active || reserving || failed || closed) throw new Error('WhatsApp target or call slot unavailable');
+      let dialer = control;
+      if (dynamic) {
+        // An invalid or own number is refused before any side effect and must not fail the channel.
+        try { dialer = new WaCallsControl({ baseUrl: options.baseUrl, sessionId: options.sessionId, clientId, ownPhone, targetPhone: phone, fetch: transport }); }
+        catch { throw new DialRejected('invalid target'); }
+      }
       reserving = true;
       try {
-        const ref = await deadline(control.dial(signal), 10000);
+        const ref = await deadline(dialer.dial(signal), 10000);
         active = { ref, connecting: false, mediaFailed: false, localEnding: false, terminal: false, abort: new AbortController() };
         reserving = false;
         callbacks.state(ref, 'dialing'); for (const text of early.splice(0)) event(text);
         return ref;
-      } catch { fault(); throw new Error('WhatsApp dial outcome unknown'); }
+      } catch (error) {
+        // A definite refusal for a visitor's number (for example not on WhatsApp) created no call and keeps the channel healthy.
+        if (dynamic && error instanceof WaCallsRejected) throw new DialRejected('platform rejected');
+        fault(); throw new Error('WhatsApp dial outcome unknown');
+      }
       finally { reserving = false; }
     },
     async accept(ref, signal) {

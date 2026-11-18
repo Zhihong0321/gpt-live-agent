@@ -22,6 +22,8 @@ export function openDatabase(filename: string): Database.Database {
     CREATE TABLE IF NOT EXISTS transcripts (call_id TEXT NOT NULL REFERENCES calls(id), id TEXT NOT NULL, hash TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(call_id,id));
     CREATE TABLE IF NOT EXISTS usage (call_id TEXT PRIMARY KEY REFERENCES calls(id), day TEXT NOT NULL, zone TEXT NOT NULL, seconds REAL NOT NULL, status TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS visitor_calls (call_id TEXT PRIMARY KEY REFERENCES calls(id), request_ref TEXT NOT NULL UNIQUE, phone TEXT NOT NULL, name TEXT, company TEXT, created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS visitor_calls_phone ON visitor_calls(phone, created_at);
     INSERT OR IGNORE INTO metadata VALUES ('event_floor','0');
 
   `);

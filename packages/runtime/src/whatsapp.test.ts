@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import type { WaCallsMediaOptions } from '@voxdock/whatsapp';
 import { createWhatsAppDriver, whatsAppPhone } from './whatsapp.js';
-import type { VoiceEvents } from './types.js';
+import { DialRejected, type VoiceEvents } from './types.js';
 function fixture(overrides: { paired?: boolean; target?: string; calls?: unknown[]; acknowledged?: boolean } = {}) {
   const session = { id: 'session', jid: '12025550100:1@s.whatsapp.net', paired: overrides.paired ?? true, state: 'open' };
   let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -154,4 +154,47 @@ test('device-qualified incoming LIDs require a stored mapping to the allowed pho
     await f.flush(); expect(f.callbacks.incoming).toHaveBeenLastCalledWith('mapped-device', true);
     expect(await driver.accept('mapped-device', AbortSignal.timeout(1000))).toBe('mapped-device');
   } finally { await driver.close(); }
+});
+
+test('dynamic targets: a visitor number is dialed only when allowed; refusals do not fail the channel', async () => {
+  const visitor = '60123456789';
+  const base = fixture();
+  const plain = await createWhatsAppDriver(base.options, base.callbacks);
+  try { await expect(plain.dial(visitor, AbortSignal.timeout(1000))).rejects.toThrow('unavailable'); } finally { await plain.close(); }
+
+  const f = fixture();
+  const dialed: string[] = [];
+  let status = 200;
+  const inner = f.options.fetch;
+  const options = { ...f.options, dynamicTargets: true, fetch: (async (url: URL | RequestInfo, init?: RequestInit) => {
+    if (new URL(String(url)).pathname.endsWith('/calls') && init?.method === 'POST') {
+      dialed.push(JSON.parse(String(init.body)).phone);
+      return status === 200 ? Response.json({ call: { callId: 'call' } }) : new Response('{}', { status });
+    }
+    return inner(url, init);
+  }) as typeof fetch };
+  const driver = await createWhatsAppDriver(options, f.callbacks);
+  try {
+    // The account's own number is refused before anything is sent.
+    await expect(driver.dial('12025550100', AbortSignal.timeout(1000))).rejects.toBeInstanceOf(DialRejected);
+    expect(dialed).toEqual([]);
+    // A 4xx from WaCalls (for example a number not on WhatsApp) is a definite refusal.
+    status = 400;
+    await expect(driver.dial(visitor, AbortSignal.timeout(1000))).rejects.toBeInstanceOf(DialRejected);
+    expect(f.callbacks.fault).not.toHaveBeenCalled();
+    // The channel still works for the next visitor.
+    status = 200;
+    expect(await driver.dial(visitor, AbortSignal.timeout(1000))).toBe('call');
+    expect(dialed).toEqual([visitor, visitor]);
+    expect(f.callbacks.fault).not.toHaveBeenCalled();
+  } finally { await driver.close(); }
+
+  // A server error is an unknown outcome and still fails the channel, as for the configured target.
+  const failing = fixture();
+  status = 500;
+  const unknown = await createWhatsAppDriver({ ...options, fetch: (async (url: URL | RequestInfo, init?: RequestInit) => new URL(String(url)).pathname.endsWith('/calls') && init?.method === 'POST' ? new Response('{}', { status: 500 }) : failing.options.fetch(url, init)) as typeof fetch }, failing.callbacks);
+  try {
+    await expect(unknown.dial(visitor, AbortSignal.timeout(1000))).rejects.toThrow('outcome unknown');
+    expect(failing.callbacks.fault).toHaveBeenCalled();
+  } finally { await unknown.close(); }
 });
