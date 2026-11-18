@@ -81,9 +81,10 @@ test('the store requires a name or a company, a valid number, is idempotent and 
     expect(() => f.visit('r2', { phone: '012345', name: 'A' })).toThrow(/invalid_phone/);
     const first = f.visit('r3', { name: 'Same' });
     expect(f.visit('r3', { name: 'Same' })).toMatchObject({ replayed: true, call: { call_id: first.call.call_id } });
-    f.store.transition(first.call.call_id, 'ended', { reason: 'test' });
+    const talk = (id: string) => { f.store.transition(id, 'dialing'); f.store.transition(id, 'connected'); f.store.transition(id, 'ended', { reason: 'test' }); };
+    talk(first.call.call_id);
     const second = f.visit('r4', { name: 'Same' });
-    f.store.transition(second.call.call_id, 'ended', { reason: 'test' });
+    talk(second.call.call_id);
     expect(() => f.visit('r5', { name: 'Same' })).toThrow(/phone_limit/);
     expect(f.visit('r6', { name: 'Other', phone: '+60129999999' }).replayed).toBe(false);
   } finally { await f.close(); }
