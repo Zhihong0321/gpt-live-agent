@@ -178,8 +178,7 @@ export class CallStore {
     const previous = this.db.prepare("SELECT call_id FROM visitor_calls WHERE request_ref=?").get(input.request_ref) as { call_id: string } | undefined;
     if (previous) return { call: this.getCall(previous.call_id), replayed: true };
     const since = new Date(this.now().getTime() - 86_400_000).toISOString();
-    // A call that ended without ever connecting (for example a WhatsApp failure) does not use up the visitor's allowance.
-    const recent = this.db.prepare("SELECT COUNT(*) AS n FROM visitor_calls v JOIN calls c ON c.id=v.call_id LEFT JOIN call_facts f ON f.call_id=v.call_id WHERE v.phone=? AND v.created_at>=? AND (c.state <> 'ended' OR COALESCE(f.connected,0)=1)").get(input.phone, since) as { n: number };
+    const recent = this.db.prepare("SELECT COUNT(*) AS n FROM visitor_calls WHERE phone=? AND created_at>=?").get(input.phone, since) as { n: number };
     if (recent.n >= options.maxPerNumberPerDay) throw new DomainError("phone_limit", 429);
     const result = this.createCall("visitor", input.request_ref, {
       target_id: "visitor",
