@@ -109,14 +109,6 @@ export const BridgeConfigSchema = Type.Object(
       ),
       { default: [], maxItems: 2 },
     ),
-    // When present, `POST /v1/visitor-calls` may place one WhatsApp call to a number a website visitor supplied.
-    // It needs a configured, paired WhatsApp target, whose session is reused.
-    visitor_calls: Type.Optional(
-      Type.Object(
-        { max_per_number_per_day: Type.Integer({ minimum: 1, maximum: 10, default: 2 }) },
-        object,
-      ),
-    ),
     live: Type.Object(
       {
         ...LivePreferencesSchema.properties,

@@ -162,39 +162,6 @@ export class CallStore {
   close(): void {
     this.db.close();
   }
-  /**
-   * A website visitor asked to be called. The visitor's own number is bound to exactly one call, the request is
-   * idempotent by `request_ref`, and each number is limited per day. Calls to these numbers use the fixed
-   * `visitor` target, so the number never becomes a reusable target.
-   */
-  createVisitorCall(
-    input: { request_ref: string; phone: string; name?: string; company?: string },
-    options: { enabled: boolean; maxTtlSeconds: number; maxPerNumberPerDay: number },
-  ): { call: CallStatus; replayed: boolean } {
-    const name = (input.name ?? "").trim().slice(0, 120);
-    const company = (input.company ?? "").trim().slice(0, 120);
-    if (!/^\+[1-9][0-9]{6,14}$/.test(input.phone)) throw new DomainError("invalid_phone", 400);
-    if (!name && !company) throw new DomainError("name_or_company_required", 400);
-    const previous = this.db.prepare("SELECT call_id FROM visitor_calls WHERE request_ref=?").get(input.request_ref) as { call_id: string } | undefined;
-    if (previous) return { call: this.getCall(previous.call_id), replayed: true };
-    const since = new Date(this.now().getTime() - 86_400_000).toISOString();
-    const recent = this.db.prepare("SELECT COUNT(*) AS n FROM visitor_calls WHERE phone=? AND created_at>=?").get(input.phone, since) as { n: number };
-    if (recent.n >= options.maxPerNumberPerDay) throw new DomainError("phone_limit", 429);
-    const result = this.createCall("visitor", input.request_ref, {
-      target_id: "visitor",
-      correlation_ref: input.request_ref,
-      context_ref: `visitor:${input.request_ref}`,
-      expires_at: new Date(this.now().getTime() + Math.min(options.maxTtlSeconds, 120) * 1000).toISOString(),
-    }, { enabled: options.enabled, allowedTargets: new Set(["visitor"]), maxTtlSeconds: options.maxTtlSeconds, channel: "whatsapp" });
-    if (!result.replayed) {
-      this.db.prepare("INSERT INTO visitor_calls (call_id,request_ref,phone,name,company,created_at) VALUES (?,?,?,?,?,?)")
-        .run(result.call.call_id, input.request_ref, input.phone, name || null, company || null, this.now().toISOString());
-    }
-    return result;
-  }
-  visitorFor(callId: string): { phone: string; name: string | null; company: string | null } | undefined {
-    return this.db.prepare("SELECT phone,name,company FROM visitor_calls WHERE call_id=?").get(callId) as { phone: string; name: string | null; company: string | null } | undefined;
-  }
   getCall(id: string): CallStatus {
     const row = this.db.prepare("SELECT body FROM calls WHERE id=?").get(id) as
       | { body: string }

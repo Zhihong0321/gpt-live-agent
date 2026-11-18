@@ -39,9 +39,7 @@ const config = {
   service: { listen: `0.0.0.0:${port}`, data_dir: data },
   security: { control_token_file: control },
   console: { enabled: true, public_origin: origin },
-  // 60 minutes of talk a day caps website-visitor spend (about $9 at current rates).
-  calling: { enabled: false, max_call_seconds: 300, daily_live_seconds: 3600 },
-  visitor_calls: { max_per_number_per_day: 2 },
+  calling: { enabled: false, max_call_seconds: 300, daily_live_seconds: 1200 },
   channels: { telegram: { enabled: false }, whatsapp: { enabled: false, endpoint: `http://127.0.0.1:${waPort}`, media_token_file: media } },
   targets: [],
   live: { api_key_file: liveKey, elevenlabs: { agent_ids: agents }, language: 'en', instructions: 'Persona, voice and language are set on the ElevenLabs agent.' },

@@ -12,11 +12,6 @@ export interface WaCallsOptions {
   fetch?: typeof fetch;
 }
 
-/** WaCalls answered with a 4xx: it refused the request, so no call was created. */
-export class WaCallsRejected extends Error {
-  constructor(readonly status: number) { super(`WaCalls rejected the request (${status})`); }
-}
-
 /** Operator-configured internal origin: upstream has no authentication. */
 export class WaCallsControl {
   private readonly options: WaCallsOptions;
@@ -43,7 +38,6 @@ export class WaCallsControl {
       headers: { 'X-Client-Id': this.options.clientId, 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    if (response.status >= 400 && response.status < 500) { await response.body?.cancel().catch(() => {}); throw new WaCallsRejected(response.status); }
     if (!response.ok) throw new Error(`WaCalls request failed (${response.status}); reconcile before retrying`);
     return response;
   }
