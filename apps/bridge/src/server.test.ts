@@ -116,10 +116,14 @@ it('places a visitor call once per request, reports busy and per-number limits, 
   const busy = await post({ request_ref: 'req-5', phone: '+60129999999', name: 'Bee' });
   expect(busy.statusCode).toBe(409); expect(busy.json()).toEqual({ error: 'busy' });
   // Each number is limited per day.
-  store.transition(first.json().call_id, 'ended', { reason: 'test' });
+  // A call that never connected does not use the allowance up.
+  store.transition(first.json().call_id, 'dialing'); store.transition(first.json().call_id, 'ended', { reason: 'platform_failed' });
+  const retry = await post({ request_ref: 'req-5b', phone: '+60123456789', name: 'Ali' });
+  expect(retry.statusCode).toBe(202);
+  store.transition(retry.json().call_id, 'dialing'); store.transition(retry.json().call_id, 'connected'); store.transition(retry.json().call_id, 'ended', { reason: 'test' });
   const second = await post({ request_ref: 'req-6', phone: '+60123456789', name: 'Ali' });
   expect(second.statusCode).toBe(202);
-  store.transition(second.json().call_id, 'ended', { reason: 'test' });
+  store.transition(second.json().call_id, 'dialing'); store.transition(second.json().call_id, 'connected'); store.transition(second.json().call_id, 'ended', { reason: 'test' });
   const limited = await post({ request_ref: 'req-7', phone: '+60123456789', name: 'Ali' });
   expect(limited.statusCode).toBe(429); expect(limited.json()).toEqual({ error: 'phone_limit' });
 });
