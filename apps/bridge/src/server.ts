@@ -134,6 +134,26 @@ export async function createBridgeServer(options: BridgeServerOptions) {
     }
     return reply.code(202).send(result.call);
   });
+  // A website visitor asked for a call: one WhatsApp call to the number they typed. Operator token only, so scoped agents cannot use it.
+  app.post<{ Body: { request_ref: string; phone: string; name?: string; company?: string } }>('/v1/visitor-calls', {
+    schema: { body: Type.Object({ request_ref: RefSchema, phone: Type.String({ maxLength: 40 }), name: Type.Optional(Type.String({ maxLength: 400 })), company: Type.Optional(Type.String({ maxLength: 400 })) }, { additionalProperties: false }), response: { 202: CallStatusSchema } },
+  }, async (request, reply) => {
+    try {
+      const result = store.createVisitorCall(request.body, {
+        enabled: config.calling.enabled && !store.isPaused(false) && !!config.visitor_calls && ready.has('whatsapp') && !!options.onCallCreated,
+        maxTtlSeconds: config.calling.max_request_ttl_seconds, maxPerNumberPerDay: config.visitor_calls?.max_per_number_per_day ?? 2,
+      });
+      if (!result.replayed && options.onCallCreated) {
+        const start = options.onCallCreated;
+        setImmediate(() => { if (closing) return; void start(result.call).catch(() => failDispatch(result.call.call_id)); });
+      }
+      return reply.code(202).send(result.call);
+    } catch (error) {
+      // Another call is in progress: the visitor is told to try again shortly.
+      if (error instanceof DomainError && error.code === 'call_capacity') return reply.code(409).send({ error: 'busy' });
+      throw error;
+    }
+  });
   app.get<{ Params: { call_id: string } }>('/v1/calls/:call_id', {
     schema: { params: idParams, response: { 200: CallStatusSchema } },
   }, async request => scopedCall(request, request.params.call_id));

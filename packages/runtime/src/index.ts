@@ -12,6 +12,7 @@ import { deadline } from './deadline.js';
 import { liveSessionSettings } from './live-settings.js';
 import { createTelegramProcess } from './telegram-process.js';
 import { createWhatsAppDriver } from './whatsapp.js';
+import { DialRejected } from './types.js';
 import type { Runtime, RuntimeBackend, RuntimeDependencies, RuntimeLive, TargetConfig, VoiceDriver, VoiceEvents } from './types.js';
 export type { Runtime, RuntimeDependencies, VoiceDriver, VoiceEvents } from './types.js';
 
@@ -33,6 +34,19 @@ function chunks(text: string, maxBytes = 450): string[] {
   const result: string[] = []; let part = '';
   for (const char of text) { if (Buffer.byteLength(part + char) > maxBytes) { result.push(part); part = ''; } part += char; }
   if (part) result.push(part); return result;
+}
+
+/** What the agent knows about a website visitor who asked for this call. The visitor typed these words, so they are data. */
+function visitorContext(visitor: { name: string | null; company: string | null }): BackendContext {
+  return {
+    context_revision: 1, obsolete: false, language: 'zh',
+    purpose: 'A visitor on the Eternalgy website asked our AI agent to call them on WhatsApp. They requested this call themselves just now.',
+    facts: [
+      ...(visitor.name ? [`Visitor name (as typed on the form): ${visitor.name}`] : []),
+      ...(visitor.company ? [`Visitor company (as typed on the form): ${visitor.company}`] : []),
+      'You are calling their WhatsApp number, so you already have it; never ask for it.',
+    ],
+  };
 }
 
 /** Owns transient call resources; all admission and event state stays in the durable store. */
@@ -110,11 +124,19 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
       a.live.start();
     } catch { await stop(a, 'live_start_failed'); }
   }
+  async function openingContext(call: CallStatus, route: Route, phase: 'before_dial' | 'before_greeting'): Promise<BackendContext> {
+    if (route.target.id === 'visitor') {
+      const visitor = store.visitorFor(call.call_id);
+      if (!visitor) throw new Error('Visitor call has no visitor record');
+      return visitorContext(visitor);
+    }
+    return backend!.context(call, route.target.principal_ref, phase);
+  }
   async function greet(a: Active): Promise<void> {
     if (!current(a) || a.stopping || a.greetingStarted || !a.live || !a.providerRef) return;
     a.greetingStarted = true; // Attempt at most once; an unknown append outcome is never replayed.
     try {
-      const context = await backend!.context(store.getCall(a.callId), a.route.target.principal_ref, 'before_greeting');
+      const context = await openingContext(store.getCall(a.callId), a.route, 'before_greeting');
       if (!current(a) || a.stopping || store.getCall(a.callId).state !== 'connected') return;
       a.context = context;
       if (context.obsolete) {
@@ -221,7 +243,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     return {
       state(ref, state, reason) {
         if (disposed) return;
-        const a = active; if (!a || a.route.target.id !== target.id || (a.providerRef && ref && a.providerRef !== ref)) return;
+        const a = active; if (!a || a.route.target.channel !== target.channel || (a.providerRef && ref && a.providerRef !== ref)) return;
         if (ref) a.providerRef = ref;
         if (state === 'ended') {
           clearMedia(a); a.stopping = true; finishLive(a);
@@ -248,11 +270,11 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
           } else if (state === 'uncertain') void stop(a, reason ?? 'platform_outcome_unknown', true);
         }
       },
-      audio(ref, pcm) { const a = active; if (a?.route.target.id === target.id && a.providerRef === ref && !a.stopping) a.audio?.receive(pcm); },
-      audioReady(ref) { const a = active; if (!a || a.route.target.id !== target.id || (a.providerRef && a.providerRef !== ref)) return;
+      audio(ref, pcm) { const a = active; if (a?.route.target.channel === target.channel && a.providerRef === ref && !a.stopping) a.audio?.receive(pcm); },
+      audioReady(ref) { const a = active; if (!a || a.route.target.channel !== target.channel || (a.providerRef && a.providerRef !== ref)) return;
         a.providerRef = ref; a.mediaReady = true; safeTransition(a, store.getCall(a.callId).state, { audio_ready: true, provider_call_ref: ref }); void beginLive(a); },
       incoming(ref, allowed) { void incoming(target, ref, allowed); },
-      fault() { readyChannels.delete(target.channel); const a = active; if (a?.route.target.id === target.id) void stop(a, 'platform_worker_failed', true); },
+      fault() { readyChannels.delete(target.channel); const a = active; if (a?.route.target.channel === target.channel) void stop(a, 'platform_worker_failed', true); },
     };
   }
   async function incoming(target: TargetConfig, ref: string, allowed: boolean): Promise<void> {
@@ -278,7 +300,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     let context: BackendContext;
     try {
       store.reserveUsage(call.call_id, { dailySeconds: config.calling.daily_live_seconds, maxSeconds: config.calling.max_call_seconds, timeZone: config.timezone });
-      context = await backend.context(call, route.target.principal_ref, 'before_dial');
+      context = await openingContext(call, route, 'before_dial');
       if (disposed) return;
       if (closing || store.isPaused(!config.calling.enabled) || context.obsolete || Date.parse(call.expires_at) <= Date.now() || store.getCall(call.call_id).state !== 'requested') {
         if (store.getCall(call.call_id).state === 'requested') store.transition(call.call_id, 'ended', { reason: context.obsolete ? 'context_obsolete' : store.isPaused(false) ? 'paused' : 'expired' });
@@ -299,11 +321,20 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     active = a;
     a.ringTimer = setTimeout(() => { void stop(a, 'ring_timeout'); }, config.calling.ring_timeout_seconds * 1000);
     try {
-      const ref = incomingRef ? await route.voice.accept(incomingRef, a.controller.signal) : await route.voice.dial(route.peerId, a.controller.signal);
+      const ref = incomingRef ? await route.voice.accept(incomingRef, a.controller.signal) : await route.voice.dial(route.target.id === 'visitor' ? store.visitorFor(call.call_id)!.phone : route.peerId, a.controller.signal);
       a.providerRef = ref;
       if (a.stopping || !current(a)) { await route.voice.end(ref); return; }
       safeTransition(a, store.getCall(call.call_id).state, { provider_call_ref: ref });
-    } catch { await stop(a, 'platform_request_unknown', true); }
+    } catch (error) {
+      if (error instanceof DialRejected) {
+        // The platform refused before any call existed: end cleanly, nothing to reconcile.
+        clearMedia(a); a.stopping = true; finishLive(a);
+        safeTransition(a, 'ended', { reason: 'dial_rejected' }); store.settleUsage(a.callId, 0);
+        if (active === a) active = undefined;
+        return;
+      }
+      await stop(a, 'platform_request_unknown', true);
+    }
   }
   async function onResult(result: DelegationResult): Promise<void> {
     const a = active;
@@ -320,6 +351,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
       }
     } catch { await stop(a, 'result_append_unknown'); }
   }
+  let whatsappVoice: VoiceDriver | undefined;
   if (config.calling.enabled && backend) {
     for (const target of config.targets) {
       if (!target.enabled || !config.channels[target.channel].enabled) continue;
@@ -332,11 +364,16 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
           voice = await createTelegramProcess({ apiId: channel.api_id ?? Number(channel.api_id_env ? env(channel.api_id_env) : undefined), apiHashFile: file(channel.api_hash_file), sessionFile: file(channel.session_file), peerId }, callbacks(target));
         } else if (target.channel === 'whatsapp' && config.channels.whatsapp.enabled) {
           const channel = config.channels.whatsapp;
-          voice = await createWhatsAppDriver({ baseUrl: channel.endpoint, sessionId: channel.account_ref, peerId, mediaSecret: await secret(file(channel.media_token_file)) }, callbacks(target));
+          voice = await createWhatsAppDriver({ baseUrl: channel.endpoint, sessionId: channel.account_ref, peerId, mediaSecret: await secret(file(channel.media_token_file)), dynamicTargets: !!config.visitor_calls }, callbacks(target));
         } else continue;
         routes.set(target.id, { target, peerId, voice }); readyChannels.add(target.channel);
+        if (target.channel === 'whatsapp') whatsappVoice ??= voice;
       } catch { /* Channel remains unavailable; startup never starts interactive authorization. */ }
     }
+  }
+  // Website visitors are called through the paired WhatsApp session; their number is bound per call, never as a target.
+  if (config.visitor_calls && whatsappVoice) {
+    routes.set('visitor', { target: { id: 'visitor', channel: 'whatsapp', account_ref: config.channels.whatsapp.account_ref ?? 'whatsapp-owner', principal_ref: 'visitor', enabled: true }, peerId: '', voice: whatsappVoice });
   }
   const outbox = backend ? new OutboxWorker(backend, store, config.events.retry_deadline_hours) : undefined;
   const outboxAbort = new AbortController();

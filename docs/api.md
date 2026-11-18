@@ -51,3 +51,16 @@ Connection flows report `starting`, `code_required`, `password_required`, `qr_re
 Disabling remote management applies to Settings/Connections/account paths for cookie and bearer clients alike. Calls, audit views and normal call controls remain available. Trusted proxy configuration and offline account recovery are described in [console setup](console.md#enable-the-console).
 
 `POST /connections/whatsapp/unlink {}` on either administrator prefix disables the channel/recipient bindings before confirmed server-device logout. It returns `{ unlinked: true }`, retains call history and stable target identities, and requires fresh QR plus recipient verification for reuse. On an unknown provider outcome, the disabled configuration remains committed and calling stays paused; this irreversible sign-out is not rolled back as if no external action occurred. `disconnect` continues to retain the paired device.
+
+## Website visitor calls
+
+`POST /v1/visitor-calls` (operator token only; scoped agent credentials are refused) places one WhatsApp call to a number a website visitor typed. It needs `visitor_calls` in the configuration and a paired WhatsApp session with a configured target, whose session it reuses. Body: `request_ref` (idempotency reference), `phone` (E.164, `+60123456789`), and at least one of `name` or `company`. Returns `202` with the call status.
+
+| Status | `error` | Meaning |
+| --- | --- | --- |
+| 400 | `name_or_company_required`, `invalid_phone`, `invalid_request` | The request is not acceptable. |
+| 409 | `busy` | Another call is in progress; only one runs at a time. |
+| 429 | `phone_limit` | That number already received `max_per_number_per_day` calls in 24 hours. |
+| 503 | `calling_disabled` | Calling or the feature is off, or WhatsApp is not ready. |
+
+The visitor's number is bound to that single call and is never a reusable target. The agent is briefed with the typed name and company as data. A number WhatsApp refuses ends the call as `dial_rejected` without failing the channel; an unknown dial outcome is `uncertain` and is never retried automatically.
