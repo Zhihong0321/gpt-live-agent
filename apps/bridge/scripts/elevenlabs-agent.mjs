@@ -59,6 +59,7 @@ const prompt = `你是丽宁，恒浩能源 Eternalgy Sdn Bhd 的 AI 电话助�
 
 # 结束通话
 - 客户明确对任何太阳能（住家或企业）都不感兴趣、要求停止、拒绝与 AI 交谈、已同意在下一个工作日被联系，或对方已经道别时：先用一句简短的话告别，然后调用 end_call 结束通话。客户还在犹豫或在提问时，不要结束通话。
+- 只有客户明确拒绝（例如“不要”“没兴趣”“no”“not interested”）才算不感兴趣。听到很短或不清楚的回应（例如“Oh”“嗯”“好”“How”“What”），不是拒绝：用同一个语言简短解释一句，或问一次“您的意思是…？”，不要道别。
 - 如果接通的是语音信箱或自动留言系统，调用 voicemail_detection，不要对着它推销。
 - 客户改用英语或马来语时，调用 language_detection 切换到对方的语言。客户说过听不懂华语、或要求用英语/马来语之后，整通电话都用那个语言，不要再切回华语。用英语或马来语交谈时听到“好”“对”这类单个华语字，可能是对方说的 how / ok / ya：继续用同一个语言回应，不清楚就用那个语言问一次。
 
@@ -108,7 +109,7 @@ const realtime = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agent
       },
     } },
     // Words the recognizer should get right (company, certifications, products).
-    asr: { keywords: ['Eternalgy', '恒浩能源', '恒浩', 'SEDA', 'CIDB', 'MyHIJAU', 'MWp', 'PPA', 'EPCC', 'Solar', 'Malaysia', 'Johor Bahru'] },
+    asr: { keywords: ['Eternalgy', '恒浩能源', '恒浩', 'SEDA', 'CIDB', 'MyHIJAU', 'MWp', 'PPA', 'EPCC', 'Solar', 'Malaysia', 'Johor Bahru', 'how', 'what', 'why', 'who', 'how much', 'sorry', 'pardon'] },
     // Small acknowledgements from the caller must not cut the agent off.
     // Background noise must not be heard as the customer saying "yes": no answering during silence.
     turn: { interruption_ignore_terms: ['嗯', '嗯嗯', '哦', '啊', '呃', 'ermm', 'uh huh', 'mm hmm', 'ok', 'okay'], speculative_turn: false },
