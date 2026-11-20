@@ -94,6 +94,9 @@ const agentId = result.agentId ?? existing;
 const tool = (name, params = {}) => ({ type: 'system', name, description: '', params: { system_tool_type: name, ...params } });
 const endCall = tool('end_call');
 endCall.description = '客户明确对住家和企业太阳能都不感兴趣、要求停止、已确认真人跟进或已道别时，先简短告别再结束通话；客户还在犹豫或提问时不要结束。';
+// Without a trigger the model rarely switches, and keeps answering English speakers in Chinese.
+const languageDetection = tool('language_detection');
+languageDetection.description = 'Call this immediately, before replying, when the customer speaks English or Malay, says they do not understand (e.g. "I don\'t understand", "can you speak English", "tak faham"), or asks for English or Malay. Then reply only in that language for the rest of the call.';
 const realtime = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
   method: 'PATCH',
   headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY, 'content-type': 'application/json' },
@@ -104,7 +107,7 @@ const realtime = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agent
       built_in_tools: {
         end_call: endCall,
         skip_turn: tool('skip_turn'),
-        language_detection: tool('language_detection'),
+        language_detection: languageDetection,
         voicemail_detection: tool('voicemail_detection', { voicemail_message: '' }), // hang up without leaving a message
       },
     } },
