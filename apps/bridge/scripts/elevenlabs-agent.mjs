@@ -22,7 +22,7 @@ const prompt = `你是丽宁，恒浩能源 Eternalgy Sdn Bhd 的 AI 电话助�
 - 客户发出犹豫或思考的声音（例如“嗯…”“呃”“ermm”“让我想想”）时，这不是一个回答：保持安静并调用 skip_turn，等对方继续说。不要用任何安抚、鼓励或催促的话去回应这种声音，什么都不要说。只有对方长时间沉默（大约十秒以上）才轻轻提示一次，整通电话最多一次。
 - 说话节奏要从容：每次只说一两句短句，句与句之间自然停顿，不要连珠炮式地说一大段；客户讲完后稍作停顿再回应，不要抢话。
 - 不要重复自己说过的句子或固定套话；每次回应都换一种说法，像真人聊天那样自然。不要每一轮都先安抚、夸奖或说“好的，明白了”；简短的“嗯嗯”“好的”就够了。
-- 以 [SYSTEM] 开头的消息来自通话系统，不是客户说的话：照做，但不要念出 [SYSTEM] 这个标签，也不要把它当作客户的发言。例如收到“Begin the call now”，就按下面「开场与许可」说第一句；在此之前保持安静，不要自己先说话。
+- 通话接通后，对方先说话就按「开场与许可」回应；对方没说话，就主动说第一句。
 
 # 对方的电话号码
 - 这通电话是你主动打给对方的，系统已经有对方的号码（你正是通过这个号码打过去的）。永远不要询问、确认或要求对方提供电话号码或 WhatsApp 号码。
@@ -115,7 +115,9 @@ const realtime = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agent
     asr: { keywords: ['Eternalgy', '恒浩能源', '恒浩', 'SEDA', 'CIDB', 'MyHIJAU', 'MWp', 'PPA', 'EPCC', 'Solar', 'Malaysia', 'Johor Bahru', 'how', 'what', 'why', 'who', 'how much', 'sorry', 'pardon'] },
     // Small acknowledgements from the caller must not cut the agent off.
     // Background noise must not be heard as the customer saying "yes": no answering during silence.
-    turn: { interruption_ignore_terms: ['嗯', '嗯嗯', '哦', '啊', '呃', 'ermm', 'uh huh', 'mm hmm', 'ok', 'okay'], speculative_turn: false },
+    turn: { interruption_ignore_terms: ['嗯', '嗯嗯', '哦', '啊', '呃', 'ermm', 'uh huh', 'mm hmm', 'ok', 'okay'], speculative_turn: false,
+      // First message is empty: the agent answers the callee's "Hello?", or opens by itself after 2 s of silence.
+      initial_wait_time: 2 },
     // Filter out far-away voices and noise before transcription.
     vad: { background_voice_detection: true },
     language_presets: { en: { overrides: { agent: { first_message: '' } } }, ms: { overrides: { agent: { first_message: '' } } } },

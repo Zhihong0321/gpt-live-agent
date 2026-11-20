@@ -44,7 +44,7 @@ describe('ElevenLabs transport', () => {
     t.client.close();
   });
 
-  it('forwards caller audio and maps appends to context updates and tagged instructions', async () => {
+  it('forwards caller audio and sends context and instructions as background, never as caller speech', async () => {
     const t = await setup();
     await t.start();
     const pcm = Buffer.alloc(640, 1);
@@ -54,7 +54,8 @@ describe('ElevenLabs transport', () => {
     await t.until(() => t.received.length >= 4);
     expect(t.received).toContainEqual({ user_audio_chunk: pcm.toString('base64') });
     expect(t.received).toContainEqual({ type: 'contextual_update', text: 'Business context data: {"purpose":"intro"}' });
-    expect(t.received).toContainEqual({ type: 'user_message', text: '[SYSTEM] Begin the call now.' });
+    expect(t.received).toContainEqual({ type: 'contextual_update', text: 'Begin the call now.' });
+    expect(t.received.some(m => (m as { type?: string }).type === 'user_message')).toBe(false);
     await t.until(() => t.events.some(e => e.type === 'thinkingAccepted') && t.events.some(e => e.type === 'instructionsAccepted'));
     t.client.close();
   });

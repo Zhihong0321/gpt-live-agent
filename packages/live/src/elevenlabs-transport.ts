@@ -14,14 +14,14 @@ export interface ElevenLabsTransportOptions {
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown) => (typeof v === 'string' ? v : '');
 const int = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-// Messages that arrive as "user" text but come from the calling system, not the caller.
-const SYSTEM_TAG = '[SYSTEM]';
 
 /**
  * Adapts the ElevenLabs Agents WebSocket (`/v1/convai/conversation`) to the message shapes `LiveClient`
  * already understands, so the runtime, audio pacing, transcripts and finalization are shared with the
  * GPT-Live path. The agent's persona and voice live on the ElevenLabs agent; per-call business context is
- * injected with `contextual_update`, and spoken instructions with a tagged `user_message`.
+ * injected with `contextual_update`. System instructions also go as `contextual_update`: a `user_message`
+ * is treated by ElevenLabs as the caller speaking, which made the agent answer turns nobody said and speak
+ * invented "[SYSTEM] …" notes aloud. The agent opens the call itself (empty first message + initial wait).
  * Every inbound field is untrusted: malformed provider events are ignored (logged by code), never fatal.
  */
 export function createElevenLabsTransport(options: ElevenLabsTransportOptions): LiveTransport {
@@ -140,11 +140,10 @@ export function createElevenLabsTransport(options: ElevenLabsTransportOptions): 
           if (typeof m.audio === 'string') toProvider({ user_audio_chunk: m.audio });
           return;
         case 'session.thinking.append':
-          toProvider({ type: 'contextual_update', text: text(m.content) });
-          break;
         case 'session.instructions.append':
         case 'session.commentary.append':
-          toProvider({ type: 'user_message', text: `${SYSTEM_TAG} ${text(m.content)}` });
+          // Background only: never a user_message, which ElevenLabs treats as the caller speaking.
+          toProvider({ type: 'contextual_update', text: text(m.content) });
           break;
         case 'session.close':
           try { socket?.close(1000); } catch { /* already closing */ }
