@@ -364,29 +364,58 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
       }
     } catch { await stop(a, 'result_append_unknown'); }
   }
-  let whatsappVoice: VoiceDriver | undefined;
+  const retryTimers = new Set<ReturnType<typeof setTimeout>>();
+  // Website visitors are called through the paired WhatsApp session; their number is bound per call, never as a target.
+  function bindVisitor(voice: VoiceDriver): void {
+    if (config.visitor_calls) routes.set('visitor', { target: { id: 'visitor', channel: 'whatsapp', account_ref: config.channels.whatsapp.account_ref ?? 'whatsapp-owner', principal_ref: 'visitor', enabled: true }, peerId: '', voice });
+  }
+  function retryTarget(target: TargetConfig, peerId: string, attempt: number): void {
+    if (closing || disposed) return;
+    const delay = Math.min(60_000, 2000 * 2 ** Math.min(attempt, 5));
+    const timer = setTimeout(() => { retryTimers.delete(timer); void connectTarget(target, peerId, attempt + 1); }, delay);
+    timer.unref(); retryTimers.add(timer);
+  }
+  /** Connects one channel. A failure (for example WaCalls still reopening its session after a redeploy) is retried in the background, never left dead. */
+  async function connectTarget(target: TargetConfig, peerId: string, attempt = 0): Promise<void> {
+    if (closing || disposed) return;
+    let voice: VoiceDriver | undefined;
+    const events = callbacks(target);
+    const fault = events.fault;
+    events.fault = () => {
+      fault();
+      // The link dropped while running: drop this driver and connect again.
+      if (!voice || routes.get(target.id)?.voice !== voice) return;
+      routes.delete(target.id);
+      if (routes.get('visitor')?.voice === voice) routes.delete('visitor');
+      void deadline(voice.close(), 5000).catch(() => {});
+      console.warn(`channel_reconnect=${target.channel}`);
+      retryTarget(target, peerId, 0);
+    };
+    try {
+      if (dependencies.voice) voice = await dependencies.voice(target, peerId, events);
+      else if (target.channel === 'telegram' && config.channels.telegram.enabled) {
+        const channel = config.channels.telegram;
+        voice = await createTelegramProcess({ apiId: channel.api_id ?? Number(channel.api_id_env ? env(channel.api_id_env) : undefined), apiHashFile: file(channel.api_hash_file), sessionFile: file(channel.session_file), peerId }, events);
+      } else if (target.channel === 'whatsapp' && config.channels.whatsapp.enabled) {
+        const channel = config.channels.whatsapp;
+        voice = await createWhatsAppDriver({ baseUrl: channel.endpoint, sessionId: channel.account_ref, peerId, mediaSecret: await secret(file(channel.media_token_file)), dynamicTargets: !!config.visitor_calls }, events);
+      } else return;
+      if (closing || disposed) { await deadline(voice.close(), 5000).catch(() => {}); return; }
+      routes.set(target.id, { target, peerId, voice }); readyChannels.add(target.channel);
+      if (target.channel === 'whatsapp' && !routes.has('visitor')) bindVisitor(voice);
+      if (attempt > 0) console.warn(`channel_connected=${target.channel} attempt=${attempt}`);
+    } catch {
+      // Startup never starts interactive authorization; it only checks the existing session again later.
+      console.warn(`channel_connect_failed=${target.channel} attempt=${attempt}`);
+      retryTarget(target, peerId, attempt);
+    }
+  }
   if (config.calling.enabled && backend) {
     for (const target of config.targets) {
       if (!target.enabled || !config.channels[target.channel].enabled) continue;
       const peerId = target.peer_id ?? (target.peer_id_env ? env(target.peer_id_env) : undefined); if (!peerId) continue;
-      try {
-        let voice: VoiceDriver;
-        if (dependencies.voice) voice = await dependencies.voice(target, peerId, callbacks(target));
-        else if (target.channel === 'telegram' && config.channels.telegram.enabled) {
-          const channel = config.channels.telegram;
-          voice = await createTelegramProcess({ apiId: channel.api_id ?? Number(channel.api_id_env ? env(channel.api_id_env) : undefined), apiHashFile: file(channel.api_hash_file), sessionFile: file(channel.session_file), peerId }, callbacks(target));
-        } else if (target.channel === 'whatsapp' && config.channels.whatsapp.enabled) {
-          const channel = config.channels.whatsapp;
-          voice = await createWhatsAppDriver({ baseUrl: channel.endpoint, sessionId: channel.account_ref, peerId, mediaSecret: await secret(file(channel.media_token_file)), dynamicTargets: !!config.visitor_calls }, callbacks(target));
-        } else continue;
-        routes.set(target.id, { target, peerId, voice }); readyChannels.add(target.channel);
-        if (target.channel === 'whatsapp') whatsappVoice ??= voice;
-      } catch { /* Channel remains unavailable; startup never starts interactive authorization. */ }
+      await connectTarget(target, peerId);
     }
-  }
-  // Website visitors are called through the paired WhatsApp session; their number is bound per call, never as a target.
-  if (config.visitor_calls && whatsappVoice) {
-    routes.set('visitor', { target: { id: 'visitor', channel: 'whatsapp', account_ref: config.channels.whatsapp.account_ref ?? 'whatsapp-owner', principal_ref: 'visitor', enabled: true }, peerId: '', voice: whatsappVoice });
   }
   const outbox = backend ? new OutboxWorker(backend, store, config.events.retry_deadline_hours) : undefined;
   const outboxAbort = new AbortController();
@@ -406,6 +435,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     onResult,
     async close() {
       closing = true;
+      for (const timer of retryTimers) clearTimeout(timer); retryTimers.clear();
       clearInterval(outboxTimer); outboxAbort.abort();
       if (active) await stop(active, 'shutdown', true);
       const cleanup = await Promise.allSettled([...routes.values()].map(route => deadline(route.voice.close(), 5000)));
