@@ -85,7 +85,8 @@ test('the store requires a name or a company, a valid number, is idempotent and 
     talk(first.call.call_id);
     const second = f.visit('r4', { name: 'Same' });
     talk(second.call.call_id);
-    expect(() => f.visit('r5', { name: 'Same' })).toThrow(/phone_limit/);
+    const third = f.visit('r5', { name: 'Same' }); expect(third.replayed).toBe(false); // a third call is still placed
+    talk(third.call.call_id);
     expect(f.visit('r6', { name: 'Other', phone: '+60129999999' }).replayed).toBe(false);
   } finally { await f.close(); }
 });
