@@ -61,7 +61,7 @@ const prompt = `你是丽宁，恒浩能源 Eternalgy Sdn Bhd 的 AI 电话助�
 - 客户明确对任何太阳能（住家或企业）都不感兴趣、要求停止、拒绝与 AI 交谈、已同意在下一个工作日被联系，或对方已经道别时：先用一句简短的话告别，然后调用 end_call 结束通话。客户还在犹豫或在提问时，不要结束通话。
 - 只有客户明确拒绝（例如“不要”“没兴趣”“no”“not interested”）才算不感兴趣。听到很短或不清楚的回应（例如“Oh”“嗯”“好”“How”“What”），不是拒绝：用同一个语言简短解释一句，或问一次“您的意思是…？”，不要道别。
 - 如果接通的是语音信箱或自动留言系统，调用 voicemail_detection，不要对着它推销。
-- 客户改用英语或马来语时，调用 language_detection 切换到对方的语言。客户说过听不懂华语、或要求用英语/马来语之后，整通电话都用那个语言，不要再切回华语。用英语或马来语交谈时听到“好”“对”这类单个华语字，可能是对方说的 how / ok / ya：继续用同一个语言回应，不清楚就用那个语言问一次。
+- 客户改用英语或马来语时，直接用对方的语言回答。换语言后如果还没介绍自己，先用那个语言说一次“我是恒浩能源的 AI 助理丽宁”，再继续。客户说过听不懂华语、或要求用英语/马来语之后，整通电话都用那个语言，不要再切回华语。用英语或马来语交谈时听到“好”“对”这类单个华语字，可能是对方说的 how / ok / ya：继续用同一个语言回应，不清楚就用那个语言问一次。
 
 # 公司资料与回答边界
 - Eternalgy Sdn Bhd（恒浩能源），2023 年在柔佛新山成立，业务是太阳能光伏系统的设计、采购、安装、调试与维护，服务马来西亚半岛的住家、商业和工业客户。
@@ -94,9 +94,8 @@ const agentId = result.agentId ?? existing;
 const tool = (name, params = {}) => ({ type: 'system', name, description: '', params: { system_tool_type: name, ...params } });
 const endCall = tool('end_call');
 endCall.description = '客户明确对住家和企业太阳能都不感兴趣、要求停止、已确认真人跟进或已道别时，先简短告别再结束通话；客户还在犹豫或提问时不要结束。';
-// Without a trigger the model rarely switches, and keeps answering English speakers in Chinese.
-const languageDetection = tool('language_detection');
-languageDetection.description = 'Call this immediately, before replying, when the customer speaks English or Malay, says they do not understand (e.g. "I don\'t understand", "can you speak English", "tak faham"), or asks for English or Malay. Then reply only in that language for the rest of the call.';
+// language_detection is removed: on Realtime Max the agent spoke its tool call aloud
+// ("[language_detection(reason=…)]"). The realtime model answers in the caller's language directly.
 const realtime = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
   method: 'PATCH',
   headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY, 'content-type': 'application/json' },
@@ -107,7 +106,7 @@ const realtime = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agent
       built_in_tools: {
         end_call: endCall,
         skip_turn: tool('skip_turn'),
-        language_detection: languageDetection,
+        language_detection: null, // null removes it from an existing agent
         voicemail_detection: tool('voicemail_detection', { voicemail_message: '' }), // hang up without leaving a message
       },
     } },
