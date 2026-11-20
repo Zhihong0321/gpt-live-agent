@@ -40,7 +40,17 @@ function chunks(text: string, maxBytes = 450): string[] {
 }
 
 /** What the agent knows about a website visitor who asked for this call. The visitor typed these words, so they are data. */
-function visitorContext(visitor: { name: string | null; company: string | null }): BackendContext {
+function visitorContext(visitor: { name: string | null; company: string | null; request_ref?: string }): BackendContext {
+  // A lead from the operator's own list (call link): we call them first; they never asked for this call.
+  if (visitor.request_ref?.startsWith('lead:')) return {
+    context_revision: 1, obsolete: false, language: 'zh',
+    purpose: 'A business lead found on Google Maps. We are calling them first; they did not request this call and did not leave details on any website. Follow the normal opening.',
+    facts: [
+      ...(visitor.name ? [`Contact name: ${visitor.name}`] : []),
+      ...(visitor.company ? [`Company: ${visitor.company}`] : []),
+      'You are calling their WhatsApp number, so you already have it; never ask for it.',
+    ],
+  };
   return {
     context_revision: 1, obsolete: false, language: 'zh',
     purpose: 'A visitor on the Eternalgy website asked our AI agent to call them on WhatsApp. They requested this call themselves just now.',

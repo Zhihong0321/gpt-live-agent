@@ -1,4 +1,5 @@
 import { registerAgentRoutes } from './agent-routes.js';
+import { callLinkPage, readCallLinkToken, type CallLead } from './call-link.js';
 import type { AgentCredentials } from './agent-credentials.js';
 import type { AgentCredential } from '@voxdock/contracts';
 import type { FastifyRequest } from 'fastify';
@@ -48,7 +49,7 @@ export async function createBridgeServer(options: BridgeServerOptions) {
   const { config, store } = options;
   const ready = { has: (channel: Channel) => options.readyChannels?.has(channel) ?? false };
   const activeTargets = () => config.targets.filter(t => t.enabled && config.channels[t.channel].enabled);
-  const app = Fastify({ logger: false, bodyLimit: 64 * 1024,
+  const app = Fastify({ logger: false, bodyLimit: 64 * 1024, maxParamLength: 2048, // signed call links are long
     ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
   const agents = new WeakMap<FastifyRequest, AgentCredential>();
   let closing = false;
@@ -68,6 +69,8 @@ export async function createBridgeServer(options: BridgeServerOptions) {
       reply.header('content-security-policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     }
     if (options.console && (route.startsWith('/admin/v1/') || route.startsWith('/console') || route === '/')) return;
+    // Call links carry their own signature made with the control token; no bearer header is possible from a browser click.
+    if (route === '/call-link/:token') return;
     const authorization = request.headers.authorization ?? '';
     if (!timingSafeEqual(tokenDigest(authorization), expected)) {
       const agent = authorization.startsWith('Bearer ') ? options.agents?.authenticate(authorization.slice(7)) : undefined;
@@ -152,6 +155,39 @@ export async function createBridgeServer(options: BridgeServerOptions) {
       // Another call is in progress: the visitor is told to try again shortly.
       if (error instanceof DomainError && error.code === 'call_capacity') return reply.code(409).send({ error: 'busy' });
       throw error;
+    }
+  });
+  // One signed link = one call to one lead. Opening it only shows a confirm page (chat apps open links to
+  // build previews); the call is placed by the button's POST. Clicking again replays the same call, never redials.
+  const leadPage = (reply: FastifyReply, code: number, title: string, lines: string[], button?: string) =>
+    reply.code(code).header('content-type', 'text/html; charset=utf-8').header('cache-control', 'no-store')
+      .header('referrer-policy', 'no-referrer').header('x-robots-tag', 'noindex').send(callLinkPage(title, lines, button));
+  const leadLines = (lead: CallLead) => [lead.name ? `Name: ${lead.name}` : '', lead.company ? `Company: ${lead.company}` : '', `Phone: ${lead.phone}`, 'Source: Google Maps lead'].filter(Boolean);
+  app.get<{ Params: { token: string } }>('/call-link/:token', async (request, reply) => {
+    const lead = readCallLinkToken(options.controlToken, request.params.token);
+    if (!lead) return leadPage(reply, 404, 'Link not valid', ['This call link is damaged or has expired.']);
+    return leadPage(reply, 200, 'Call this lead?', leadLines(lead), 'Call now');
+  });
+  app.post<{ Params: { token: string } }>('/call-link/:token', async (request, reply) => {
+    const lead = readCallLinkToken(options.controlToken, request.params.token);
+    if (!lead) return leadPage(reply, 404, 'Link not valid', ['This call link is damaged or has expired.']);
+    try {
+      const result = store.createVisitorCall({ request_ref: `lead:${lead.source}:${lead.id}`, phone: lead.phone,
+        ...(lead.name ? { name: lead.name } : {}), ...(lead.company ? { company: lead.company } : {}) }, {
+        enabled: config.calling.enabled && !store.isPaused(false) && ready.has('whatsapp') && !!options.onCallCreated,
+        maxTtlSeconds: config.calling.max_request_ttl_seconds, maxPerNumberPerDay: config.visitor_calls?.max_per_number_per_day ?? 2,
+      });
+      if (!result.replayed && options.onCallCreated) {
+        const start = options.onCallCreated;
+        setImmediate(() => { if (closing) return; void start(result.call).catch(() => failDispatch(result.call.call_id)); });
+      }
+      return leadPage(reply, 200, result.replayed ? 'Already called' : 'Calling now', [...leadLines(lead),
+        result.replayed ? `This link was already used. Call status: ${result.call.state}.` : 'The phone is ringing. You can close this page.']);
+    } catch (error) {
+      const code = error instanceof DomainError ? error.code : 'internal_error';
+      const why: Record<string, string> = { call_capacity: 'Another call is in progress. Try again in a few minutes.', calling_disabled: 'Calling is not available right now (WhatsApp not ready or calling paused).',
+        phone_limit: 'This number has already been called the maximum times today.', invalid_phone: 'The phone number in this link is not valid.' };
+      return leadPage(reply, 409, 'Call not placed', [...leadLines(lead), why[code] ?? `The call could not be placed (${code}).`]);
     }
   });
   app.get<{ Params: { call_id: string } }>('/v1/calls/:call_id', {

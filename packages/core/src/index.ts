@@ -193,8 +193,8 @@ export class CallStore {
     }
     return result;
   }
-  visitorFor(callId: string): { phone: string; name: string | null; company: string | null } | undefined {
-    return this.db.prepare("SELECT phone,name,company FROM visitor_calls WHERE call_id=?").get(callId) as { phone: string; name: string | null; company: string | null } | undefined;
+  visitorFor(callId: string): { phone: string; name: string | null; company: string | null; request_ref: string } | undefined {
+    return this.db.prepare("SELECT phone,name,company,request_ref FROM visitor_calls WHERE call_id=?").get(callId) as { phone: string; name: string | null; company: string | null; request_ref: string } | undefined;
   }
   getCall(id: string): CallStatus {
     const row = this.db.prepare("SELECT body FROM calls WHERE id=?").get(id) as

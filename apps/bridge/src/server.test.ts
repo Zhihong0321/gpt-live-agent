@@ -1,8 +1,9 @@
-import { setImmediate as nextTick } from 'node:timers/promises';
+﻿import { setImmediate as nextTick } from 'node:timers/promises';
 import { afterEach, expect, it } from 'vitest';
 import { parseConfig } from '@voxdock/config';
 import { CallStore } from '@voxdock/core';
 import { createBridgeServer } from './server.js';
+import { createCallLinkToken } from './call-link.js';
 
 const now = new Date('2026-09-16T12:00:00Z');
 const token = 'control-test-token-with-at-least-32-characters';
@@ -107,7 +108,7 @@ it('places a visitor call once per request, reports busy and per-number limits, 
   expect(first.statusCode).toBe(202);
   await nextTick();
   expect(started).toEqual([first.json().call_id]);
-  expect(store.visitorFor(first.json().call_id)).toEqual({ phone: '+60123456789', name: 'Ali', company: 'ACME' });
+  expect(store.visitorFor(first.json().call_id)).toEqual({ phone: '+60123456789', name: 'Ali', company: 'ACME', request_ref: 'req-4' });
   // The same request is not dialed twice.
   expect((await post({ request_ref: 'req-4', phone: '+60123456789', name: 'Ali', company: 'ACME' })).statusCode).toBe(202);
   await nextTick();
@@ -132,4 +133,23 @@ it('refuses visitor calls when the feature is not configured', async () => {
   const response = await post({ request_ref: 'req-1', phone: '+60123456789', name: 'Ali' });
   expect(response.statusCode).toBe(503); expect(response.json()).toEqual({ error: 'calling_disabled' });
   expect(started).toEqual([]);
+});
+
+it('a call link shows a confirm page on open, calls once on the button, and never redials', async () => {
+  const { app, store, started } = await visitorSetup();
+  const link = createCallLinkToken(token, { phone: '+60127299201', name: 'Mr. Gan', company: 'Lead Co', source: 'gmaps' });
+  const opened = await app.inject({ url: `/call-link/${link}` });
+  expect(opened.statusCode).toBe(200); expect(opened.body).toContain('Call now');
+  await nextTick();
+  expect(started).toHaveLength(0); // opening (or a chat-app preview) never dials
+  const first = await app.inject({ method: 'POST', url: `/call-link/${link}` });
+  expect(first.body).toContain('Calling now');
+  await nextTick();
+  expect(started).toHaveLength(1);
+  expect(store.visitorFor(started[0]!)?.request_ref).toMatch(/^lead:gmaps:/);
+  const again = await app.inject({ method: 'POST', url: `/call-link/${link}` });
+  expect(again.body).toContain('Already called');
+  await nextTick();
+  expect(started).toHaveLength(1);
+  expect((await app.inject({ url: `/call-link/${link}x` })).statusCode).toBe(404);
 });
