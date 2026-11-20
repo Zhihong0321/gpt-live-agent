@@ -36,7 +36,7 @@ test.each(['channel', 'target', 'both', 'unbound'])('starts safely without a cal
     expect(context).not.toHaveBeenCalled(); expect(voice).not.toHaveBeenCalled(); expect(live).not.toHaveBeenCalled();
   } finally { await runtime.close(); store.close(); }
 });
-async function fixture(options: { connect?: boolean; obsolete?: boolean; maxSeconds?: number; liveReady?: boolean; language?: string; live?: Partial<BridgeConfig['live']> } = {}) {
+async function fixture(options: { connect?: boolean; obsolete?: boolean; maxSeconds?: number; liveReady?: boolean; language?: string; live?: Partial<BridgeConfig['live']>; openingDelayMs?: number } = {}) {
   const store = new CallStore(':memory:');
   let callbacks!: VoiceEvents;
   let emit!: (event: LiveEvent) => void;
@@ -56,7 +56,7 @@ async function fixture(options: { connect?: boolean; obsolete?: boolean; maxSeco
   Object.assign(settings.live, options.live);
   const instruction = vi.fn((text: string) => { output.push({ kind: 'instructions', text }); return 'append'; });
   const runtime = await createRuntime({ config: settings, store }, {
-    backend: { context, delegate, deliverEvent }, environment: () => '123', resampler: () => new PassThrough(),
+    backend: { context, delegate, deliverEvent }, environment: () => '123', resampler: () => new PassThrough(), openingDelayMs: options.openingDelayMs ?? 0,
     voice: async (_target, _peer, events) => { callbacks = events; return { rate: 48000, frameMs: 10, dial, accept, reject, end, writeAudio: async () => {}, close: async () => {} }; },
     live: (_settings, listener) => { emit = listener; return {
       start() { liveStarts++; if (options.liveReady !== false) emit({ type: 'ready', sessionId: 'session' }); },
@@ -97,6 +97,22 @@ test('coordinator dials after context, greets once, delegates with transcript re
     expect(f.store.getCall(call.call_id).state).toBe('ended');
     expect(f.store.getRecord(call.call_id).usage).toMatchObject({ status: 'settled', seconds: 1 });
   } finally { await f.close(); }
+});
+test('waits before the opening greeting, and greets at once when the callee speaks first', async () => {
+  const f = await fixture({ openingDelayMs: 300 });
+  try {
+    await f.runtime.onCallCreated(request(f.store)); await f.flush();
+    expect(f.output.filter(item => item.kind === 'instructions')).toHaveLength(0);
+    await new Promise(resolve => setTimeout(resolve, 320));
+    expect(f.output.filter(item => item.kind === 'instructions')).toHaveLength(1);
+  } finally { await f.close(); }
+  const g = await fixture({ openingDelayMs: 5000 });
+  try {
+    await g.runtime.onCallCreated(request(g.store)); await g.flush();
+    expect(g.output.filter(item => item.kind === 'instructions')).toHaveLength(0);
+    g.emit({ type: 'transcript', speaker: 'user', delta: 'Hello?', startMs: 0, endMs: 10, eventId: 'hello-1' }); await g.flush();
+    expect(g.output.filter(item => item.kind === 'instructions')).toHaveLength(1);
+  } finally { await g.close(); }
 });
 test('runtime delivers durable call events and acknowledges the outbox', async () => {
   vi.useFakeTimers();

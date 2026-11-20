@@ -30,7 +30,7 @@ All fields below are under `live` in the deployment file or `settings.live` in a
 | `custom_voice_id` | empty | Optional existing `voice_…` resource; overrides the built-in voice when set |
 | `language` | `en` | Preferred spoken language; a prompt preference, not a locale restriction |
 | `instructions` | empty | Additional voice behavior: personality, pace, brevity, pronunciation or conversational style; up to 16,000 characters |
-| `greeting_enabled` | `true` | Request an immediate opening after fresh backend context arrives; when false, wait for the caller to speak |
+| `greeting_enabled` | `true` | Request the opening after fresh backend context arrives and a 1.5 s pause (cut short when the callee speaks first); when false, wait for the caller to speak |
 | `delegation` | `client` | External backend or OpenAI-managed `responses`; one mode per call |
 
 VoxDock supplies baseline instructions for AI identification, business-context handling and truthful reporting of tool outcomes. Voice instructions are added to these. The backend controls the call's purpose and verified facts; do not put changing task state or secrets into static instructions.

@@ -10,6 +10,7 @@ import { CallAudio } from './audio.js';
 import { ClosingDetector } from './closing.js';
 import { deadline } from './deadline.js';
 import { liveSessionSettings } from './live-settings.js';
+import { callDates } from './working-day.js';
 import { createTelegramProcess } from './telegram-process.js';
 import { createWhatsAppDriver } from './whatsapp.js';
 import { DialRejected } from './types.js';
@@ -29,6 +30,8 @@ interface Active {
   finalized?: Promise<void>; resolveFinalized?: () => void;
   transcriptIds: Set<string>;
   closing?: ClosingDetector;
+  /** Ends the pause before the opening early, when the callee speaks first. */
+  openingWait?: (() => void) | undefined;
 }
 function chunks(text: string, maxBytes = 450): string[] {
   const result: string[] = []; let part = '';
@@ -75,6 +78,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     // A configured ElevenLabs agent replaces GPT-Live for that channel.
     return new LiveClient(agentId ? createElevenLabsTransport({ apiKey, agentId, rate }) : createOpenAITransport(apiKey), settings, emit);
   });
+  const openingDelayMs = Math.max(0, dependencies.openingDelayMs ?? 1500);
   const current = (a: Active) => active === a && !closing;
   function safeTransition(a: Active, state: CallStatus['state'], patch: Parameters<CallStore['transition']>[2] = {}): void {
     const previous = store.getCall(a.callId);
@@ -145,9 +149,17 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
           : 'The notification is no longer current. Wait for the caller; do not report old task details.');
         a.greeted = true; return;
       }
-      const facts = JSON.stringify({ purpose: context.purpose, facts: context.facts, language: config.live.language });
+      const facts = JSON.stringify({ purpose: context.purpose, facts: context.facts, language: config.live.language, ...callDates(new Date()) });
       if (Buffer.byteLength(facts) > 8000) throw new Error('Context exceeds bounded spoken briefing');
       for (const part of chunks(facts)) a.live.thinking(`Business context data: ${part}`);
+      // Give the callee time to lift the phone to their ear; speak at once if they say hello first.
+      if (config.live.greeting_enabled && openingDelayMs > 0) {
+        await new Promise<void>(resolve => {
+          const timer = setTimeout(() => { a.openingWait = undefined; resolve(); }, openingDelayMs);
+          a.openingWait = () => { clearTimeout(timer); a.openingWait = undefined; resolve(); };
+        });
+        if (!current(a) || a.stopping || !a.live) return;
+      }
       if (config.live.greeting_enabled) a.live.instructions('Begin the call now in the configured language. Follow the opening and permission sequence in your original instructions. If no opening sequence was specified, introduce yourself as an AI assistant, state the purpose briefly, and listen.');
       a.greeted = true;
     } catch { await stop(a, 'opening_context_failed'); }
@@ -156,6 +168,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     if (!a.sessionId || a.stopping || !event.delta) return;
     if (event.eventId) { if (a.transcriptIds.has(event.eventId)) return; a.transcriptIds.add(event.eventId); }
     if (event.speaker === 'assistant') a.closing?.transcript(event.delta);
+    else a.openingWait?.();
     if (event.delta.length > 16000) { void stop(a, 'transcript_capacity'); return; }
     // Bound the in-memory delegation window without ending longer calls.
     // The separately configured transcript store retains the full record.

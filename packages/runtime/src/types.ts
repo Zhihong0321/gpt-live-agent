@@ -42,6 +42,8 @@ export interface RuntimeDependencies {
   resampler?: (inputRate: 16000 | 24000 | 48000, outputRate: 16000 | 24000 | 48000) => Duplex;
   secret?: (path: string) => Promise<string>;
   environment?: (name: string) => string | undefined;
+  /** Pause after the callee answers before the agent's first words (default 1500 ms). */
+  openingDelayMs?: number;
 }
 export interface Runtime {
   readyChannels: Set<Channel>;
