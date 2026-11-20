@@ -109,7 +109,10 @@ const realtime = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agent
     // Words the recognizer should get right (company, certifications, products).
     asr: { keywords: ['Eternalgy', '恒浩能源', '恒浩', 'SEDA', 'CIDB', 'MyHIJAU', 'MWp', 'PPA', 'EPCC', 'Solar', 'Malaysia', 'Johor Bahru'] },
     // Small acknowledgements from the caller must not cut the agent off.
-    turn: { interruption_ignore_terms: ['嗯', '嗯嗯', '哦', '啊', '呃', 'ermm', 'uh huh', 'mm hmm', 'ok', 'okay'] },
+    // Background noise must not be heard as the customer saying "yes": no answering during silence.
+    turn: { interruption_ignore_terms: ['嗯', '嗯嗯', '哦', '啊', '呃', 'ermm', 'uh huh', 'mm hmm', 'ok', 'okay'], speculative_turn: false },
+    // Filter out far-away voices and noise before transcription.
+    vad: { background_voice_detection: true },
     language_presets: { en: { overrides: { agent: { first_message: '' } } }, ms: { overrides: { agent: { first_message: '' } } } },
   } }),
 });
