@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+﻿import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { BackendClient, OutboxWorker } from '@voxdock/backend';
@@ -48,7 +48,7 @@ function visitorContext(visitor: { name: string | null; company: string | null; 
     facts: [
       ...(visitor.name ? [`Contact name: ${visitor.name}`] : []),
       ...(visitor.company ? [`Company: ${visitor.company}`] : []),
-      'You are calling their WhatsApp number, so you already have it; never ask for it.',
+      'You are calling their WhatsApp number (phone in this data); you already have it.',
     ],
   };
   return {
@@ -57,7 +57,7 @@ function visitorContext(visitor: { name: string | null; company: string | null; 
     facts: [
       ...(visitor.name ? [`Visitor name (as typed on the form): ${visitor.name}`] : []),
       ...(visitor.company ? [`Visitor company (as typed on the form): ${visitor.company}`] : []),
-      'You are calling their WhatsApp number, so you already have it; never ask for it.',
+      'You are calling their WhatsApp number (phone in this data); you already have it.',
     ],
   };
 }
@@ -146,6 +146,14 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     }
     return backend!.context(call, route.target.principal_ref, phase);
   }
+  /** The WhatsApp number this call rang, so the agent knows it already has the owner's number. Never throws. */
+  function calledNumber(a: Active): { phone?: string } {
+    try {
+      const raw = a.route.target.id === 'visitor' ? store.visitorFor(a.callId)?.phone : a.route.target.channel === 'whatsapp' ? a.route.peerId : undefined;
+      const digits = (raw ?? '').replace(/[^0-9]/g, '');
+      return digits ? { phone: `+${digits}` } : {};
+    } catch { return {}; }
+  }
   async function greet(a: Active): Promise<void> {
     if (!current(a) || a.stopping || a.greetingStarted || !a.live || !a.providerRef) return;
     a.greetingStarted = true; // Attempt at most once; an unknown append outcome is never replayed.
@@ -159,7 +167,7 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
           : 'The notification is no longer current. Wait for the caller; do not report old task details.');
         a.greeted = true; return;
       }
-      const facts = JSON.stringify({ purpose: context.purpose, facts: context.facts, language: config.live.language, ...callDates(new Date()) });
+      const facts = JSON.stringify({ purpose: context.purpose, facts: context.facts, language: config.live.language, ...calledNumber(a), ...callDates(new Date()) });
       if (Buffer.byteLength(facts) > 8000) throw new Error('Context exceeds bounded spoken briefing');
       for (const part of chunks(facts)) a.live.thinking(`Business context data: ${part}`);
       // Give the callee time to lift the phone to their ear; speak at once if they say hello first.

@@ -54,7 +54,8 @@ test('a visitor call dials the visitor number and briefs the agent from the form
     const briefing = f.thinking.join(' ');
     expect(briefing).toContain('Visitor name (as typed on the form): Ali');
     expect(briefing).toContain('Visitor company (as typed on the form): ACME Sdn Bhd');
-    expect(briefing).toContain('never ask for it');
+    expect(briefing).toContain('"phone":"+60123456789"'); // the agent knows the number it called
+    expect(briefing).not.toContain('never ask');
     expect(f.store.getCall(call.call_id).state).toBe('connected');
   } finally { await f.close(); }
 });
