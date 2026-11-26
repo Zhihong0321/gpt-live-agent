@@ -106,7 +106,7 @@ export async function registerConsole(app: FastifyInstance, options: ConsoleOpti
   app.setNotFoundHandler(async (request, reply) => {
     const path = request.url.split('?')[0]!;
     // Only known client routes receive the SPA shell. Missing assets and API paths remain JSON 404s.
-    if (request.method === 'GET' && /^\/console\/(?:overview|calls(?:\/[A-Za-z0-9_-]+)?|connections|settings)\/?$/.test(path)) return reply.sendFile('index.html');
+    if (request.method === 'GET' && /^\/console\/(?:overview|calls(?:\/[A-Za-z0-9_-]+)?|scripts|connections|settings)\/?$/.test(path)) return reply.sendFile('index.html');
     return reply.code(404).send({ error: 'not_found' });
   });
 }

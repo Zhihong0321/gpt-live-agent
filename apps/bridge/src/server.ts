@@ -1,5 +1,6 @@
 import { registerAgentRoutes } from './agent-routes.js';
 import { callLinkPage, readCallLinkToken, type CallLead } from './call-link.js';
+import { registerScriptsPage } from './scripts-page.js';
 import type { AgentCredentials } from './agent-credentials.js';
 import type { AgentCredential } from '@voxdock/contracts';
 import type { FastifyRequest } from 'fastify';
@@ -71,6 +72,8 @@ export async function createBridgeServer(options: BridgeServerOptions) {
     if (options.console && (route.startsWith('/admin/v1/') || route.startsWith('/console') || route === '/')) return;
     // Call links carry their own signature made with the control token; no bearer header is possible from a browser click.
     if (route === '/call-link/:token') return;
+    // The call scripts page checks its own access key and cookie.
+    if (route === '/scripts' || route.startsWith('/scripts/')) return;
     const authorization = request.headers.authorization ?? '';
     if (!timingSafeEqual(tokenDigest(authorization), expected)) {
       const agent = authorization.startsWith('Bearer ') ? options.agents?.authenticate(authorization.slice(7)) : undefined;
@@ -157,6 +160,7 @@ export async function createBridgeServer(options: BridgeServerOptions) {
       throw error;
     }
   });
+  registerScriptsPage(app, { store, controlToken: options.controlToken });
   // One signed link = one call to one lead. Opening it only shows a confirm page (chat apps open links to
   // build previews); the call is placed by the button's POST. Clicking again replays the same call, never redials.
   const leadPage = (reply: FastifyReply, code: number, title: string, lines: string[], button?: string) =>
