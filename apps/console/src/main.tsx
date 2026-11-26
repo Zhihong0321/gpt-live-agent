@@ -29,6 +29,7 @@ import {
   IconArrowRight,
   IconChartBar,
   IconLogout,
+  IconMessages,
   IconPhone,
   IconPlugConnected,
 } from "@tabler/icons-react";
@@ -41,6 +42,9 @@ const Overview = lazy(() =>
 const Calls = lazy(() => import("./calls").then((m) => ({ default: m.Calls })));
 const CallDetail = lazy(() =>
   import("./calls").then((m) => ({ default: m.CallDetail })),
+);
+const Transcripts = lazy(() =>
+  import("./transcripts").then((m) => ({ default: m.Transcripts })),
 );
 const Connections = lazy(() =>
   import("./connections").then((m) => ({ default: m.Connections })),
@@ -253,6 +257,7 @@ function Login({
 const navigation = [
   { to: "/", label: "Overview", icon: IconChartBar },
   { to: "/calls", label: "Calls", icon: IconPhone },
+  { to: "/scripts", label: "Call scripts", icon: IconMessages },
   { to: "/connections", label: "Connections", icon: IconPlugConnected },
   { to: "/settings", label: "Settings", icon: IconAdjustmentsHorizontal },
 ];
@@ -357,6 +362,7 @@ function Shell({ onLogout }: { onLogout: () => Promise<void> }) {
                 path="/calls/:id"
                 element={<CallDetail key={location.pathname} />}
               />
+              <Route path="/scripts" element={<Transcripts />} />
               <Route path="/connections" element={<Connections />} />
               <Route path="/settings" element={<Settings />} />
               <Route
