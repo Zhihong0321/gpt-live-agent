@@ -86,11 +86,12 @@ const length = (seconds: number | null) => typeof seconds === 'number' ? `${Math
 
 function listHtml(store: CallStore): string {
   const { scripts, problem } = collect(store);
-  const head = `<p class="meta">${scripts.length} calls · updated ${escape(when(new Date().toISOString()))}</p>${problem ? `<p class="warn">${escape(problem)}</p>` : ''}`;
+  const head = `<p class="meta">${scripts.length} calls · updated <time datetime="${new Date().toISOString()}">${escape(when(new Date().toISOString()))}</time></p>${problem ? `<p class="warn">${escape(problem)}</p>` : ''}`;
   if (!scripts.length) return `${head}<div class="card"><p class="muted">No calls yet.</p></div>`;
-  return head + scripts.map(s => `<div class="card"><div class="top"><b>${escape(s.who.join(' · '))}</b>
-<span class="muted">${escape(when(s.started))} · ${escape(s.direction)} · ${escape(length(s.seconds))} · ${escape(s.state)}</span></div>
-${s.note ? `<p class="muted">${escape(s.note)}</p>` : ''}${s.turns.map(t => `<div class="turn ${t.speaker === 'user' ? 'user' : 'agent'}"><span>${escape(speakerName(t.speaker))}${t.final ? '' : ' (partial)'}</span><p>${escape(t.text)}</p></div>`).join('')}</div>`).join('');
+  // Collapsed by default: the summary line is who was called and when. Click to read the conversation.
+  return head + scripts.map(s => `<details class="card" data-id="${escape(s.id)}"><summary><b>${escape(s.who.join(' · '))}</b>
+<time class="muted" datetime="${escape(s.started)}">${escape(when(s.started))}</time></summary><p class="muted">${escape(s.direction)} · ${escape(length(s.seconds))} · ${escape(s.state)}</p>
+${s.note ? `<p class="muted">${escape(s.note)}</p>` : ''}${s.turns.map(t => `<div class="turn ${t.speaker === 'user' ? 'user' : 'agent'}"><span>${escape(speakerName(t.speaker))}${t.final ? '' : ' (partial)'}</span><p>${escape(t.text)}</p></div>`).join('')}</details>`).join('');
 }
 
 function textFile(store: CallStore): string {
@@ -108,7 +109,8 @@ function textFile(store: CallStore): string {
 const style = `body{font:15px/1.5 system-ui,sans-serif;max-width:860px;margin:0 auto;padding:24px 16px;background:#f6f7f9;color:#14171a}
 h1{font-size:22px;margin:0}.bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}
 .card{background:#fff;border-radius:12px;padding:16px 18px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-.top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;margin-bottom:8px}.muted,.meta{color:#68707a;font-size:13px}
+.card summary{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;cursor:pointer;list-style:none}
+.card summary::-webkit-details-marker{display:none}.card summary b::before{content:'▸ ';color:#68707a}.card[open] summary b::before{content:'▾ '}.card[open] summary{margin-bottom:8px}.muted,.meta{color:#68707a;font-size:13px}
 .warn{color:#9a5b00;font-size:13px}.turn{border-radius:10px;padding:8px 12px;margin:8px 0;background:#eef6f2}.turn.user{background:#f1f3f5}
 .turn span{font-size:12px;font-weight:600;color:#3d4650}.turn p{margin:2px 0 0;white-space:pre-wrap}
 a.btn,button{display:inline-block;padding:9px 16px;border:0;border-radius:9px;background:#0b6bcb;color:#fff;font-size:14px;text-decoration:none;cursor:pointer}
@@ -128,8 +130,10 @@ if(r.ok)location.reload();else m.textContent=r.status===401?'Wrong access key.':
 
 const fullPage = (store: CallStore) => page('Call scripts', `<div class="bar"><h1>Call scripts</h1><a class="btn" href="/scripts/download.txt">Download all</a></div>
 <p class="muted">Every call's conversation, newest first. Updates every 10 seconds.</p><div id="list">${listHtml(store)}</div><script>
+const localTimes=()=>document.querySelectorAll('time[datetime]').forEach(t=>{const d=new Date(t.getAttribute('datetime'));if(!isNaN(d))t.textContent=d.toLocaleString(undefined,{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});});localTimes();
 setInterval(async()=>{if(document.visibilityState!=='visible')return;try{const r=await fetch('/scripts/list',{cache:'no-store'});
-if(r.ok)document.getElementById('list').innerHTML=await r.text();else if(r.status===401)location.reload();}catch{}},10000);
+if(r.ok){const list=document.getElementById('list');const open=new Set([...list.querySelectorAll('details[open]')].map(d=>d.dataset.id));
+list.innerHTML=await r.text();list.querySelectorAll('details').forEach(d=>{if(open.has(d.dataset.id))d.open=true;});localTimes();}else if(r.status===401)location.reload();}catch{}},10000);
 </script>`);
 
 const send = (reply: FastifyReply, code: number, type: string, body: string) =>
