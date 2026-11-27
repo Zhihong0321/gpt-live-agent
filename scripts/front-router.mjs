@@ -9,7 +9,8 @@ import { resolve } from 'node:path';
 const TENANT_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const COOKIE = 'voxdock_tenant';
 const RELOAD_MS = 5000;
-const UPSTREAM_TIMEOUT_MS = 30000;
+// Only the wait for response headers; generous so slow pairing or QR requests are never cut off.
+const UPSTREAM_TIMEOUT_MS = 300000;
 
 function log(line) {
   try { console.log(`front-router: ${line}`); } catch { /* never crash on logging */ }
@@ -230,6 +231,7 @@ if (isMain) {
   if (!routesFile) log('routes file problem: no routes file given (usage: node scripts/front-router.mjs <routes-file.json>)');
   const router = createFrontRouter({ routesFile: routesFile || 'routes.json' });
   const { host, port } = parseListen(router.routes?.listen);
-  router.server.on('error', (error) => log(`listen problem: ${error?.message || error}`));
+  // Not listening means no site at all: exit so the start script restarts the service.
+  router.server.on('error', (error) => { log(`listen problem: ${error?.message || error}`); process.exit(1); });
   router.server.listen(port, host, () => log(`listening on ${host}:${port}`));
 }
