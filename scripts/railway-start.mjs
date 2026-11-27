@@ -92,11 +92,15 @@ function runTenant(id, file) {
   const child = bridge(file);
   entry.child = child;
   let restarted = false;
+  const startedAt = Date.now();
   const again = reason => {
     if (restarted || stopping) return;
     restarted = true;
-    console.error(`tenants: bridge for "${id}" stopped (${reason}), restarting in 5 s`);
-    setTimeout(() => runTenant(id, file), 5000).unref();
+    // Quick repeated failures wait longer (5 s up to 60 s) so the log stays readable.
+    entry.failures = Date.now() - startedAt < 60000 ? (entry.failures ?? 0) + 1 : 1;
+    const wait = Math.min(60, 5 * 2 ** (entry.failures - 1));
+    console.error(`tenants: bridge for "${id}" stopped (${reason}), restart ${entry.failures} in ${wait} s`);
+    setTimeout(() => runTenant(id, file), wait * 1000).unref();
   };
   child.on('error', error => again(error?.message ?? 'spawn error'));
   child.on('exit', code => again(`exit ${code}`));
