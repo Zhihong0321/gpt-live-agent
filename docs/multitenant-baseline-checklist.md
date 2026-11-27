@@ -65,6 +65,23 @@ Replace `<your-domain>` with the live Railway domain.
 - [ ] No new environment variable is needed to make it work.
 - [ ] Linux tests: no test that passed in the baseline fails now.
 
+## Automatic test route (Phase 1 deploy)
+
+Stage A, staging (no effect on production): a second Railway service from branch `multitenant-phase1`, its own empty volume, same `ELEVENLABS_API_KEY`, no WhatsApp linked.
+1. Build and start succeed; logs show `front-router: listening` and no `service_start_failed`.
+2. `node scripts/prod-check-public.mjs https://<staging-domain>`: healthz 200, console 200, `/u/main` 302, unknown user 404.
+3. On the server: `node scripts/tenant-add.mjs test1`, wait 15 s, `node scripts/prod-check.mjs`: every line PASS for `main` and `test1`.
+4. Log in as `test1` at `/u/test1` with `/data/users/test1/bootstrap-credentials.txt`; Connections shows a QR for a separate WhatsApp session (`wa-test1`).
+5. Kill the `test1` bridge process: logs show `restart 1 in 5 s`, `main` keeps answering.
+
+Stage B, production (only after Stage A passes, at a time with no calls running):
+1. Before: `node scripts/prod-check-public.mjs https://gpt-live-agent-production.up.railway.app --save reports/local/prod-before.json` (recorded 2026-11-27).
+2. Merge to `main`, push. Watch `railway logs --service gpt-live-agent` until `front-router: listening` and the WaCalls `whatsapp-owner` session restore.
+3. After: same command with `--compare reports/local/prod-before.json`: all PASS.
+4. On the server: `node scripts/prod-check.mjs`: all PASS, `whatsapp-owner` paired=true state=open, call count same as before.
+5. Sections 2–7 of this checklist by hand (one real test call).
+6. Any FAIL that is not fixed in minutes: redeploy tag `before-multitenant`.
+
 ## Result log
 
 | Date | Commit | Change | Sections passed | Problems found | Action |
