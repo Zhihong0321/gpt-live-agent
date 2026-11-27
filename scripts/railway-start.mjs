@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
@@ -116,6 +116,10 @@ function startNewTenants() {
       const tenantControl = join(dir, 'control.token');
       if (!existsSync(tenantControl)) writeFileSync(tenantControl, randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
       chmodSync(tenantControl, 0o600);
+      // Marks a user without their own agent: the MCP never reads or changes the shared default agent.
+      const sharedMarker = join(dir, 'shared-agent');
+      if (tenant.agent_id_whatsapp) rmSync(sharedMarker, { force: true });
+      else writeFileSync(sharedMarker, 'This user shares the default agent.\n', { mode: 0o600 });
       const file = join(dir, 'railway.config.json');
       writeFileSync(file, JSON.stringify(tenantConfig(config, tenant, { listen: `127.0.0.1:${tenantPort}`, dataDir: dir, controlTokenFile: tenantControl }), null, 2), { mode: 0o600 });
       extra.set(tenant.id, { port: tenantPort, child: undefined });

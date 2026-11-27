@@ -140,6 +140,7 @@ export async function startService(
       config,
       store,
       controlToken: token,
+      dataDirectory: data,
       management: runtime,
       connections,
       targetPairing,

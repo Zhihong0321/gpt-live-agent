@@ -1,6 +1,7 @@
 import { registerAgentRoutes } from './agent-routes.js';
 import { callLinkPage, readCallLinkToken, type CallLead } from './call-link.js';
 import { registerScriptsPage } from './scripts-page.js';
+import { registerUserMcp } from './user-mcp.js';
 import type { AgentCredentials } from './agent-credentials.js';
 import type { AgentCredential } from '@voxdock/contracts';
 import type { FastifyRequest } from 'fastify';
@@ -29,6 +30,8 @@ export interface BridgeServerOptions {
   console?: ConsoleOptions;
   store: CallStore;
   controlToken: string;
+  /** The user's data folder; enables the user MCP at /mcp together with a console account. */
+  dataDirectory?: string;
   mode?: 'native' | 'simulation';
   readyChannels?: ReadonlySet<Channel>;
   management?: RuntimeManager;
@@ -74,6 +77,8 @@ export async function createBridgeServer(options: BridgeServerOptions) {
     if (route === '/call-link/:token') return;
     // The call scripts page checks its own access key and cookie.
     if (route === '/scripts' || route.startsWith('/scripts/')) return;
+    // The user MCP checks the console username and password itself.
+    if (route === '/mcp' && options.console?.account) return;
     const authorization = request.headers.authorization ?? '';
     if (!timingSafeEqual(tokenDigest(authorization), expected)) {
       const agent = authorization.startsWith('Bearer ') ? options.agents?.authenticate(authorization.slice(7)) : undefined;
@@ -161,6 +166,8 @@ export async function createBridgeServer(options: BridgeServerOptions) {
     }
   });
   registerScriptsPage(app, { store, controlToken: options.controlToken });
+  if (options.console?.account && options.dataDirectory)
+    registerUserMcp(app, { config, account: options.console.account, controlToken: options.controlToken, dataDirectory: options.dataDirectory });
   // One signed link = one call to one lead. Opening it only shows a confirm page (chat apps open links to
   // build previews); the call is placed by the button's POST. Clicking again replays the same call, never redials.
   const leadPage = (reply: FastifyReply, code: number, title: string, lines: string[], button?: string) =>
