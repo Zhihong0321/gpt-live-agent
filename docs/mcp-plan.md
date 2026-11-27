@@ -1,4 +1,22 @@
-# MCP for users (Phase 2 plan, not started)
+# MCP for users
+
+## Built (2026-11-27), tested on staging
+
+The user's AI agent stores the user's console username and password and sends them as HTTP Basic auth. The decision was username + password instead of a token.
+
+- URL: `https://<domain>/u/<user-id>/mcp` (streamable HTTP).
+- Header: `Authorization: Basic <base64 of username:password>`.
+  - PowerShell: `[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('user001:PASSWORD'))`
+- Claude Code: `claude mcp add --transport http voxdock https://<domain>/u/user001/mcp --header "Authorization: Basic <base64>"`
+- Codex and other MCP hosts: the same URL and header in their HTTP MCP config.
+- After 10 wrong passwords in a minute the endpoint answers "wait one minute".
+- A password change in the console makes the old stored login stop working.
+
+Tools: `whoami`, `get_settings`, `update_settings`, `get_agent_prompt`, `update_agent_prompt`, `list_prompt_history`, `restore_prompt`, `call_number`, `list_calls`, `get_call`, `get_call_script`, `end_call`, `whatsapp_status`, `usage`.
+
+Users on the shared default agent cannot read or change its prompt; they get a labelled answer. A failed history save never blocks a prompt change; the answer says "previous version NOT saved".
+
+## Original plan
 
 Goal: each user's own AI agent can (1) keep a stored login and (2) do most of the user's work, mainly tuning their agent and starting calls.
 
