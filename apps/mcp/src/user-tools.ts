@@ -10,6 +10,45 @@ export interface UserOps {
   updatePrompt(change: { prompt?: string | undefined; first_message?: string | undefined; note?: string | undefined }): Promise<unknown>;
   promptHistory(): Promise<unknown>;
   restorePrompt(version: number): Promise<unknown>;
+  /** The user's own console address, for setup steps a person must do. */
+  consoleUrl(): string;
+}
+
+export interface SetupStep { step: number; name: string; done: boolean; who: "you (on your phone, in the console)" | "your AI can do this"; how: string }
+export interface SetupStatus { ready_to_call: boolean; console: string; next_step: string; steps: SetupStep[]; problem?: string }
+
+/** Plain setup steps from the same data the console shows. Never throws: a read problem is written on the answer. */
+export async function setupStatus(ops: UserOps): Promise<SetupStatus> {
+  const link = ops.consoleUrl();
+  const [connections, configuration] = await Promise.all([
+    ops.request("GET", "/v1/console/connections").catch(() => ({ status: 0, body: undefined })),
+    ops.request("GET", "/v1/console/settings/configuration").catch(() => ({ status: 0, body: undefined })),
+  ]);
+  const channels = isRecord(connections.body) && Array.isArray(connections.body.channels) ? connections.body.channels : [];
+  const wa = channels.find((c: unknown) => isRecord(c) && c.channel === "whatsapp") as Record<string, unknown> | undefined;
+  const settings = isRecord(configuration.body) && isRecord(configuration.body.settings) ? configuration.body.settings : {};
+  const linked = wa?.authenticated === true;
+  const paired = Array.isArray(wa?.targets) && wa!.targets.length > 0;
+  const waOn = isRecord(settings.whatsapp) && settings.whatsapp.enabled === true;
+  const callingOn = isRecord(settings.calling) && settings.calling.enabled === true;
+  const ready = wa?.ready === true && callingOn;
+  const steps: SetupStep[] = [
+    { step: 1, name: "Link the WhatsApp that makes the calls", done: linked, who: "you (on your phone, in the console)",
+      how: `Open ${link} and sign in. Connections → Configure WhatsApp → Connect WhatsApp. On the phone whose WhatsApp will make the calls: WhatsApp → Linked devices → Link a device → scan the QR code.` },
+    { step: 2, name: "Pair a receiving number", done: paired, who: "you (on your phone, in the console)",
+      how: `Same window, step 2 "Pair your number": follow the steps with a second WhatsApp number (not the one from step 1). This proves the link works before real calls.` },
+    { step: 3, name: "Turn on WhatsApp", done: waOn, who: "your AI can do this", how: `update_settings with {"whatsapp":{"enabled":true}} (or console Settings).` },
+    { step: 4, name: "Turn on calling", done: callingOn, who: "your AI can do this", how: `update_settings with {"calling":{"enabled":true}} (or console Settings → Calling & limits).` },
+  ];
+  const next = steps.find(s => !s.done);
+  const status: SetupStatus = {
+    ready_to_call: ready, console: link, steps,
+    next_step: ready ? "Setup is complete: call_number can place calls."
+      : next ? `Step ${next.step}: ${next.name}. ${next.who === "your AI can do this" ? "Your AI can do this now." : "Needs the user's phone; tell the user the steps below."}`
+      : "All steps look done but WhatsApp is not ready yet: wait a minute and check again; if it stays not ready, open Connections in the console.",
+  };
+  if (connections.status !== 200 || configuration.status !== 200) status.problem = `Could not read everything (connections HTTP ${connections.status}, settings HTTP ${configuration.status}); steps may be incomplete.`;
+  return status;
 }
 
 const read = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
@@ -32,7 +71,8 @@ export function createUserMcpServer(ops: UserOps) {
       instructions:
         "Tools for one VoxDock user: tune their calling agent and start real WhatsApp phone calls. Start a call only when the user asked for it. " +
         "A started call is a request, not proof anyone answered: use get_call to follow it. Never redial automatically after an unclear result. " +
-        "Prompt changes are saved with history; use list_prompt_history and restore_prompt to undo.",
+        "Prompt changes are saved with history; use list_prompt_history and restore_prompt to undo. " +
+        "First run setup_status: until it says ready_to_call, guide the user through its steps (linking WhatsApp needs their phone in the console).",
     },
   );
   const reply = (data: unknown, isError = false) => ({
@@ -51,8 +91,16 @@ export function createUserMcpServer(ops: UserOps) {
   };
   const callId = z.strictObject({ call_id: z.string().min(1).max(200).describe("Call id from call_number or list_calls") });
 
+  server.registerTool("setup_status", {
+    description: "Is this user ready to make calls? Lists each setup step (done or not), who does it (the user on their phone, or you), exactly how, and the user's console link. Run this first.",
+    inputSchema: z.strictObject({}), annotations: read,
+  }, () => run(() => setupStatus(ops)));
   server.registerTool("whoami", { description: "Who is signed in, which agent they use, and whether calling and WhatsApp are ready.", inputSchema: z.strictObject({}), annotations: read },
-    () => run(() => ops.whoami()));
+    () => run(async () => {
+      const me = await ops.whoami();
+      const setup = await setupStatus(ops);
+      return { ...(isRecord(me) ? me : {}), ready_to_call: setup.ready_to_call, setup_next_step: setup.next_step, console: setup.console };
+    }));
 
   server.registerTool("get_settings", { description: "Read this user's call settings (calling on/off, call length, daily minutes, language, timezone and more) and the current revision.", inputSchema: z.strictObject({}), annotations: read },
     () => api("GET", "/v1/console/settings/configuration"));
@@ -89,7 +137,18 @@ export function createUserMcpServer(ops: UserOps) {
       name: z.string().max(400).optional(), company: z.string().max(400).optional(),
       request_ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:/-]*$/).max(200).optional().describe("Your own id for this request; same id = same call"),
     }), annotations: phone,
-  }, ({ request_ref, ...lead }) => api("POST", "/v1/visitor-calls", { request_ref: request_ref ?? `mcp-${crypto.randomUUID()}`, ...lead }));
+  }, async ({ request_ref, ...lead }) => {
+    const result = await ops.request("POST", "/v1/visitor-calls", { request_ref: request_ref ?? `mcp-${crypto.randomUUID()}`, ...lead });
+    if (result.status < 400) return reply(result.body);
+    // The bridge answers with a short code; add the real reason in plain words when setup is not finished.
+    const error: Record<string, unknown> = { http_status: result.status, ...(isRecord(result.body) ? result.body : { body: result.body }) };
+    if (result.body && isRecord(result.body) && result.body.error === "busy") error.meaning = "Another call of this user is running. Try again when it ends.";
+    else {
+      const setup = await setupStatus(ops).catch(() => undefined);
+      if (setup && !setup.ready_to_call) { error.meaning = `No call was placed: setup is not finished. ${setup.next_step}`; error.setup = setup; }
+    }
+    return reply({ error }, true);
+  });
   server.registerTool("list_calls", {
     description: "Recent calls of this user, newest first.",
     inputSchema: z.strictObject({ limit: z.number().int().min(1).max(100).optional() }), annotations: read,

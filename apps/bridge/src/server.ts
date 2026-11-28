@@ -172,7 +172,7 @@ export async function createBridgeServer(options: BridgeServerOptions) {
   });
   registerScriptsPage(app, { store, controlToken: options.controlToken });
   if (options.console?.account && options.dataDirectory)
-    registerUserMcp(app, { config, account: options.console.account, controlToken: options.controlToken, dataDirectory: options.dataDirectory });
+    registerUserMcp(app, { config, account: options.console.account, controlToken: options.controlToken, dataDirectory: options.dataDirectory, publicOrigin: options.console.publicOrigin });
   if (keysAdmin && options.console?.account && options.dataDirectory)
     registerKeysAdmin(app, { account: options.console.account, controlToken: options.controlToken, publicOrigin: options.console.publicOrigin,
       poolFile: poolFileFor(options.dataDirectory), mainData: options.dataDirectory, primaryKeyFile: config.live.api_key_file ?? '',

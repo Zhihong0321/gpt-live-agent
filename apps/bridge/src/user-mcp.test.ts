@@ -67,7 +67,7 @@ it('lists the user tools and answers whoami, calls, usage and settings', async (
   const list = await mcp('tools/list', {});
   expect(list.status).toBe(200);
   const names = list.json.result.tools.map((t: { name: string }) => t.name).sort();
-  expect(names).toEqual(['call_number', 'end_call', 'get_agent_prompt', 'get_call', 'get_call_script', 'get_settings', 'list_calls', 'list_prompt_history', 'restore_prompt', 'update_agent_prompt', 'update_settings', 'usage', 'whatsapp_status', 'whoami']);
+  expect(names).toEqual(['call_number', 'end_call', 'get_agent_prompt', 'get_call', 'get_call_script', 'get_settings', 'list_calls', 'list_prompt_history', 'restore_prompt', 'setup_status', 'update_agent_prompt', 'update_settings', 'usage', 'whatsapp_status', 'whoami']);
   const me = await tool('whoami');
   expect(me.data).toMatchObject({ username: 'user001', agent_id: 'agent_own', shared_default_agent: false });
   expect((await tool('list_calls')).isError).toBe(false);
@@ -83,6 +83,25 @@ it('labels a call request while calling is off, and never hides it', async () =>
   const r = await tool('call_number', { phone: '+60123456789', name: 'Test Lead' });
   expect(r.isError).toBe(true);
   expect(r.data.error.http_status).toBeGreaterThanOrEqual(400);
+  // The real reason, in plain words, with the steps and the user's console link.
+  expect(r.data.error.meaning).toContain('setup is not finished');
+  expect(r.data.error.setup.steps[0]).toMatchObject({ step: 1, done: false, who: 'you (on your phone, in the console)' });
+  expect(r.data.error.setup.console).toBe('https://example.test/console/');
+});
+
+it('setup_status lists each step, who does it and the console link; whoami says if ready to call', async () => {
+  const { tool } = await setup();
+  const s = await tool('setup_status');
+  expect(s.isError).toBe(false);
+  expect(s.data.ready_to_call).toBe(false);
+  expect(s.data.steps.map((x: { name: string }) => x.name)).toEqual(['Link the WhatsApp that makes the calls', 'Pair a receiving number', 'Turn on WhatsApp', 'Turn on calling']);
+  expect(s.data.steps[0].how).toContain('https://example.test/console/');
+  expect(s.data.next_step).toContain('Step 1');
+  // Settings cannot be read in this test bridge: written on the answer, not hidden.
+  expect(s.data.problem).toContain('settings HTTP 503');
+  const me = await tool('whoami');
+  expect(me.data).toMatchObject({ username: 'user001', ready_to_call: false, console: 'https://example.test/console/' });
+  expect(me.data.setup_next_step).toContain('Step 1');
 });
 
 it('updates the own agent prompt with history and can restore it', async () => {

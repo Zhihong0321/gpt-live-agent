@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { BridgeConfig } from '@voxdock/config';
 import type { ConsoleAccountStore } from './console-account.js';
@@ -13,6 +13,7 @@ export interface UserMcpOptions {
   account: ConsoleAccountStore;
   controlToken: string;
   dataDirectory: string;
+  publicOrigin: string;
 }
 interface PromptVersion { version: number; at: string; by: string; note: string; prompt: string; first_message: string }
 const ELEVENLABS = 'https://api.elevenlabs.io/v1/convai/agents';
@@ -97,6 +98,8 @@ export function registerUserMcp(app: FastifyInstance, options: UserMcpOptions) {
         : { changed: true, previous_version_saved: version, note: 'Applies to calls that start from now on. Copies in other ElevenLabs accounts update within 5 minutes.' };
     };
     return {
+      // The user's own sign-in page: /u/<id> for a user folder, the console for the main account.
+      consoleUrl: () => basename(dirname(options.dataDirectory)) === 'users' ? `${options.publicOrigin}/u/${basename(options.dataDirectory)}` : `${options.publicOrigin}/console/`,
       request: inject,
       whoami: async () => {
         const settings = await inject('GET', '/v1/console/settings/configuration');
