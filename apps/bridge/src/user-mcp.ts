@@ -93,8 +93,8 @@ export function registerUserMcp(app: FastifyInstance, options: UserMcpOptions) {
       if (change.first_message !== undefined) agent.first_message = change.first_message;
       await elevenlabs('PATCH', { conversation_config: { agent } });
       return historyProblem
-        ? { changed: true, previous_version_saved: null, history_problem: historyProblem, note: 'Applies to calls that start from now on.' }
-        : { changed: true, previous_version_saved: version, note: 'Applies to calls that start from now on.' };
+        ? { changed: true, previous_version_saved: null, history_problem: historyProblem, note: 'Applies to calls that start from now on. Copies in other ElevenLabs accounts update within 5 minutes.' }
+        : { changed: true, previous_version_saved: version, note: 'Applies to calls that start from now on. Copies in other ElevenLabs accounts update within 5 minutes.' };
     };
     return {
       request: inject,

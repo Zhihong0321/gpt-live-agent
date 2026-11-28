@@ -63,7 +63,7 @@ function visitorContext(visitor: { name: string | null; company: string | null; 
 }
 
 /** Owns transient call resources; all admission and event state stays in the durable store. */
-export async function createRuntime(options: { config: BridgeConfig; store: CallStore; configDirectory?: string }, dependencies: RuntimeDependencies = {}): Promise<Runtime> {
+export async function createRuntime(options: { config: BridgeConfig; store: CallStore; configDirectory?: string; pickElevenLabs?: (agentId: string, primaryKey: string) => { apiKey: string; agentId: string } }, dependencies: RuntimeDependencies = {}): Promise<Runtime> {
   const { config, store } = options;
   const readyChannels = new Set<Channel>();
   const routes = new Map<string, Route>();
@@ -86,7 +86,11 @@ export async function createRuntime(options: { config: BridgeConfig; store: Call
     const rate = settings.rate === 16000 ? 16000 : 24000;
     const agentId = config.live.elevenlabs?.agent_ids[rate === 16000 ? 'whatsapp' : 'telegram'];
     // A configured ElevenLabs agent replaces GPT-Live for that channel.
-    return new LiveClient(agentId ? createElevenLabsTransport({ apiKey, agentId, rate }) : createOpenAITransport(apiKey), settings, emit);
+    if (!agentId) return new LiveClient(createOpenAITransport(apiKey), settings, emit);
+    // The key pool may move a new call to another ElevenLabs account (its copy of this agent). Any problem: key 1 and this agent.
+    let chosen = { apiKey, agentId };
+    try { const picked = options.pickElevenLabs?.(agentId, apiKey); if (picked?.apiKey && picked.agentId) chosen = { apiKey: picked.apiKey, agentId: picked.agentId }; } catch { /* key 1 */ }
+    return new LiveClient(createElevenLabsTransport({ apiKey: chosen.apiKey, agentId: chosen.agentId, rate }), settings, emit);
   });
   const openingDelayMs = Math.max(0, dependencies.openingDelayMs ?? 1500);
   const current = (a: Active) => active === a && !closing;

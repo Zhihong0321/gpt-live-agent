@@ -12,6 +12,7 @@ import { acquireProcessLock } from "./cli-lock.js";
 import { openConsoleAccount } from './console-account.js';
 import { ConfigurationStore } from './configuration-store.js';
 import { RuntimeManager } from './runtime-manager.js';
+import { livePicker } from './elevenlabs-pool.js';
 import { createConnectionService, type ConnectionService } from './connection-service.js';
 import { DomainError } from '@voxdock/core';
 import { TelegramPairingService } from './telegram-pairing-service.js';
@@ -28,6 +29,8 @@ export type RuntimeFactory = (options: {
   config: BridgeConfig;
   store: CallStore;
   configDirectory: string;
+  /** ElevenLabs key pool: picks the key and agent copy for each new call; key 1 on any problem. */
+  pickElevenLabs?: (agentId: string, primaryKey: string) => { apiKey: string; agentId: string };
 }) => Promise<Runtime>;
 export async function defaultRuntimeFactory(
   options: Parameters<RuntimeFactory>[0],
@@ -113,7 +116,10 @@ export async function startService(
       persistTranscripts: config.records.transcript_retention_days > 0,
     });
     if (store.recover().length) store.setPaused(true);
-    runtime = new RuntimeManager(config, store, directory, factory, configuration);
+    const pickElevenLabs = livePicker(data, line => process.stderr.write(`${line}
+`));
+    const pooledFactory: RuntimeFactory = options => factory({ ...options, pickElevenLabs });
+    runtime = new RuntimeManager(config, store, directory, pooledFactory, configuration);
     await runtime.start();
     const getWhatsAppConfig = async () => {
       const wa = config.channels.whatsapp;

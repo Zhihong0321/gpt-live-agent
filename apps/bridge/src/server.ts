@@ -2,6 +2,8 @@ import { registerAgentRoutes } from './agent-routes.js';
 import { callLinkPage, readCallLinkToken, type CallLead } from './call-link.js';
 import { registerScriptsPage } from './scripts-page.js';
 import { registerUserMcp } from './user-mcp.js';
+import { registerKeysAdmin } from './keys-admin.js';
+import { isMainData, poolFileFor } from './elevenlabs-pool.js';
 import type { AgentCredentials } from './agent-credentials.js';
 import type { AgentCredential } from '@voxdock/contracts';
 import type { FastifyRequest } from 'fastify';
@@ -51,6 +53,7 @@ export async function createBridgeServer(options: BridgeServerOptions) {
     throw new Error('A control token of at least 32 non-whitespace characters is required');
   }
   const { config, store } = options;
+  const keysAdmin = !!(options.console?.account && options.dataDirectory && isMainData(options.dataDirectory));
   const ready = { has: (channel: Channel) => options.readyChannels?.has(channel) ?? false };
   const activeTargets = () => config.targets.filter(t => t.enabled && config.channels[t.channel].enabled);
   const app = Fastify({ logger: false, bodyLimit: 64 * 1024, maxParamLength: 2048, // signed call links are long
@@ -79,6 +82,8 @@ export async function createBridgeServer(options: BridgeServerOptions) {
     if (route === '/scripts' || route.startsWith('/scripts/')) return;
     // The user MCP checks the console username and password itself.
     if (route === '/mcp' && options.console?.account) return;
+    // The ElevenLabs keys page (main bridge only) checks its own sign-in.
+    if (keysAdmin && (route === '/admin' || route.startsWith('/admin/keys/'))) return;
     const authorization = request.headers.authorization ?? '';
     if (!timingSafeEqual(tokenDigest(authorization), expected)) {
       const agent = authorization.startsWith('Bearer ') ? options.agents?.authenticate(authorization.slice(7)) : undefined;
@@ -168,6 +173,10 @@ export async function createBridgeServer(options: BridgeServerOptions) {
   registerScriptsPage(app, { store, controlToken: options.controlToken });
   if (options.console?.account && options.dataDirectory)
     registerUserMcp(app, { config, account: options.console.account, controlToken: options.controlToken, dataDirectory: options.dataDirectory });
+  if (keysAdmin && options.console?.account && options.dataDirectory)
+    registerKeysAdmin(app, { account: options.console.account, controlToken: options.controlToken, publicOrigin: options.console.publicOrigin,
+      poolFile: poolFileFor(options.dataDirectory), mainData: options.dataDirectory, primaryKeyFile: config.live.api_key_file ?? '',
+      mainAgent: config.live.elevenlabs?.agent_ids?.whatsapp, log: line => app.log.warn(line) });
   // One signed link = one call to one lead. Opening it only shows a confirm page (chat apps open links to
   // build previews); the call is placed by the button's POST. Clicking again replays the same call, never redials.
   const leadPage = (reply: FastifyReply, code: number, title: string, lines: string[], button?: string) =>

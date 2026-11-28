@@ -172,7 +172,8 @@ export function createFrontRouter({ routesFile }) {
     }
 
     // Public customer links: always the default user.
-    const isPublic = pathname.startsWith('/call-link/') || pathname.startsWith('/v1/visitor-calls') || pathname === '/healthz';
+    // The ElevenLabs keys page belongs to the main account.
+    const isPublic = pathname.startsWith('/call-link/') || pathname.startsWith('/v1/visitor-calls') || pathname === '/healthz' || pathname === '/admin' || pathname.startsWith('/admin/keys/');
     let id = defaultId;
     if (!isPublic) {
       const chosen = readCookie(req.headers.cookie, COOKIE);
